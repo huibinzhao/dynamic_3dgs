@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+
+<head lang="en">
+    <meta charset="UTF-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+
+    <title>Resolution Where It Counts</title>
+
+    <meta name="description"
+        content="Resolution Where It Counts: Hash-based GPU-Accelerated 3D Reconstruction via Variance Adaptive Voxel Grids">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!--FACEBOOK-->
+    <!-- <meta property="og:type" content="website" /> -->
+    <!-- <meta property="og:url" content="https://rvp-group.github.io/mrhash" /> -->
+    <!-- <meta property='og:video' content="https://www.youtube.com/watch?v=" /> -->
+    <!-- <meta property="og:title" content="Resolution Where It Counts" /> -->
+    <!-- <meta property="og:description" -->
+    <!--     content="Resolution Where It Counts: Hash-based GPU-Accelerated 3D Reconstruction via Variance Adaptive Voxel Grids" /> -->
+
+    <!--TWITTER-->
+    <!-- <meta name="twitter:card" content="player" /> -->
+    <!-- <meta name="twitter:title" content="Resolution Where It Counts" /> -->
+    <!-- <meta name="twitter:description" -->
+    <!--     content="Project page for Resolution Where It Counts: Hash-based GPU-Accelerated 3D Reconstruction via Variance Adaptive Voxel Grids" /> -->
+    <!-- <meta name="twitter:player" content="https://www.youtube.com/watch?v=" /> -->
+    <!-- <meta name="twitter:player:width" content="640">
+    <meta name="twitter:player:height" content="360"> -->
+
+    <link rel="icon" href="/paint.png">
+    <!-- Place favicon.ico in the root directory -->
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.min.css">
+    <link rel="stylesheet" href="assets/css/bog/app.css">
+
+    <link rel="stylesheet" href="assets/css/bog/bootstrap.min.css">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/1.5.3/clipboard.min.js"></script>
+
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" id="MathJax-script" async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+        </script>
+
+    <link rel="stylesheet" href="assets/css/bog/dics.min.css">
+    <script src="assets/js/bog/dics.min.js"></script>
+    <script src="assets/js/bog/video_comparison.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', domReady);
+        function domReady() {
+            for (const e of document.querySelectorAll(".b-dics")) {
+                new Dics({
+                    container: e,
+                    textPosition: "top"
+                });
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="container" id="main">
+        <div class="row">
+            <h2 class="col-md-12 text-center">
+                <b>Resolution Where It Counts</b>:<br> Hash-based GPU-Accelerated 3D Reconstruction <br> via
+                Variance-Adaptive Voxel Grids </br>
+                <small>
+                    <strong>Transaction on Graphics</strong>
+                </small>
+            </h2>
+        </div>
+        <div class="row">
+            <div class="col-md-12 text-center">
+                <ul class="list-inline">
+                    <li>
+                        <a href="https://lderebotti.github.io">Lorenzo De
+                            Rebotti</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
+                    </li>
+                    <li>
+                        <a href="https://emanuelegiacomini.github.io/">Emanuele
+                            Giacomini</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
+                    </li>
+                    <li>
+                        <a href="https://sites.google.com/dis.uniroma1.it/grisetti/home">Giorgio Grisetti</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
+                    </li>
+                    <li>
+                        <a href="https://digiamm.github.io/">Luca Di Giammarino</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12 text-center">
+                <ul class="list-inline">
+                    <li>Sapienza, University of Rome</span>&nbsp;&nbsp;&nbsp;&nbsp;</li>
+                </ul>
+                </h5>
+            </div>
+
+
+            <div class="row">
+                <div class="col-md-6 col-md-offset-3 text-center">
+                    <ul class="nav nav-pills nav-justified">
+                        <li>
+                            <a href="https://arxiv.org/abs/xxxx.xxxxx">
+                                <image src="assets/paper/paper.png" height="60px">
+                                    <h4><strong>Paper</strong></h4>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="https://github.com/rvp-group/mrhash">
+                                <image src="assets/img/bog/github_pad.png" height="60px">
+                                    <h4><strong>Code</strong></h4>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-8 col-md-offset-2">
+                    <h3>
+                        Abstract
+                    </h3>
+                    <p class="text-justify">
+                        Efficient and scalable 3D surface reconstruction from range data remains a core challenge in
+                        computer graphics and vision, particularly in real-time and resource-constrained scenarios.
+                        Traditional volumetric methods based on fixed-resolution voxel grids or hierarchical structures
+                        like octrees often suffer from memory inefficiency, computational overhead, and a lack of GPU
+                        support.
+                        We propose a novel variance-adaptive, multi-resolution voxel grid that dynamically adjusts voxel
+                        size based on the local variance of signed distance field (SDF) observations. Unlike prior
+                        multi-resolution approaches that rely on recursive octree structures, our method leverages a
+                        flat spatial hash table to store all voxel blocks, supporting constant-time access and full GPU
+                        parallelism. This design enables high memory efficiency, and real-time scalability.
+                        We further demonstrate how our representation supports GPU-accelerated rendering through a
+                        parallel quad-tree structure for Gaussian Splatting, enabling effective control over splat
+                        density. Our open-source CUDA/C++ implementation achieves up to 13× speedup and 4× lower memory
+                        usage compared to fixed-resolution baselines, while maintaining on par results in terms of
+                        reconstruction accuracy, offering a practical and extensible solution for high-performance 3D
+                        reconstruction.
+                    </p>
+                </div>
+            </div>
+
+            <div class="row comp-margin">
+            </div>
+
+            <div class="row comp-margin">
+            <div class="row">
+                <div class="col-md-8 col-md-offset-2">
+                    <h3>
+                        Citation
+                    </h3>
+                    <p>
+                        If you want to cite our work, please use:
+                    </p>
+                    <pre style="font-size: 12px;">
+<!-- @article{,
+    title={},
+    author={},
+    publisher = {Association for Computing Machinery},
+    journal = {ACM Transaction on Graphics (ToG)},
+    year      = {2025},
+    doi       = {}} -->
+
+                    </pre>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-8 col-md-offset-2">
+                    <h3>
+                        Acknowledgements
+                    </h3>
+                    <p class="text-justify">
+                        The website template was borrowed from <a href="http://mgharbi.com/">Michaël
+                            Gharbi</a> and <a href="https://jonbarron.info/mipnerf360/">MipNeRF360</a>.
+                    </p>
+                </div>
+            </div>
+        </div>
+</body>
+
+</html>
