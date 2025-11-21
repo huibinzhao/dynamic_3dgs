@@ -28,7 +28,7 @@
     <!-- <meta name="twitter:player:width" content="640">
     <meta name="twitter:player:height" content="360"> -->
 
-    <link rel="icon" href="/paint.png">
+    <!-- <link rel="icon" href="/paint.png"> -->
     <!-- Place favicon.ico in the root directory -->
 
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
@@ -48,20 +48,196 @@
         src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
         </script>
 
-    <link rel="stylesheet" href="assets/css/bog/dics.min.css">
-    <script src="assets/js/bog/dics.min.js"></script>
     <script src="assets/js/bog/video_comparison.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', domReady);
-        function domReady() {
-            for (const e of document.querySelectorAll(".b-dics")) {
-                new Dics({
-                    container: e,
-                    textPosition: "top"
-                });
+    <script src="assets/js/bog/image_comparison.js"></script>
+
+    <!-- Three.js for 3D mesh visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="assets/js/bog/mesh_viewer.js"></script>
+
+    <style>
+        .mesh-viewer-section {
+            margin-top: 60px;
+            margin-bottom: 40px;
+        }
+
+        .mesh-viewer-container {
+            width: 100%;
+            height: 400px;
+            background: #1a1a1a;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 20px;
+            position: relative;
+            border: 2px solid #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .mesh-viewer-container {
+                height: 300px;
+                margin-bottom: 20px;
             }
         }
-    </script>
+
+        .results-table-section {
+            margin-top: 60px;
+        }
+
+        .results-table-wrapper {
+            margin: 20px 0 10px;
+        }
+
+        .results-table-responsive {
+            overflow-x: auto;
+        }
+
+        .runtime-table-wrapper {
+            margin: 20px 0;
+        }
+
+        .results-table {
+            width: 100%;
+            min-width: 960px;
+            border-collapse: collapse;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .results-table th,
+        .results-table td {
+            border: 1px solid #dfe3ef;
+            padding: 6px 8px;
+            vertical-align: middle;
+            text-align: center;
+        }
+
+        .results-table thead th {
+            background: #161b2c;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .results-table thead th.split-col,
+        .results-table tbody td.split-col {
+            border-right: 2px solid #9aa6d8;
+        }
+
+        .results-table .section-label td {
+            background: #f2f2ff;
+            font-weight: 600;
+            border-top: 2px solid #cfd6f3;
+            border-bottom: 2px solid #cfd6f3;
+        }
+
+        .results-table .method-name {
+            font-weight: 600;
+            background: #f8f9fd;
+            width: 50px;
+        }
+
+        .results-table .metric-label {
+            text-align: left;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .metric-first {
+            background: #b6dcb6;
+            font-weight: 600;
+        }
+
+        .metric-second {
+            background: #eceba7;
+            font-weight: 500;
+        }
+
+        .metric-third {
+            background: #ffe7a3;
+            font-weight: 500;
+        }
+
+        .legend-swatch {
+            display: inline-block;
+            padding: 0 6px;
+            border-radius: 4px;
+            margin: 0 4px;
+        }
+
+        .fail-text {
+            color: #c53030;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .results-caption {
+            font-size: 13px;
+            color: #50668c;
+            margin: 8px 0 4px;
+        }
+
+        .results-footnote {
+            font-size: 12px;
+            color: #4a4a4a;
+        }
+
+        @media (max-width: 768px) {
+            .results-table {
+                font-size: 11px;
+            }
+        }
+
+        .runtime-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .runtime-table th,
+        .runtime-table td {
+            border: 1px solid #dfe3ef;
+            padding: 6px 6px;
+            vertical-align: middle;
+        }
+
+        .runtime-table thead th {
+            background: #161b2c;
+            color: #fff;
+            font-weight: 600;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .runtime-table .dataset-group {
+            border-right: 2px solid #9aa6d8;
+        }
+
+        .runtime-table .method-cell {
+            font-weight: 600;
+            text-align: left;
+            background: #f8f9fd;
+            white-space: nowrap;
+        }
+
+        .runtime-table .section-header {
+            background: #f2f2ff;
+            font-weight: 600;
+        }
+
+        .hero-figure {
+            width: 100%;
+            max-width: 480px;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .hero-figure-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 95px 0 10px;
+        }
+    </style>
 </head>
 
 <body>
@@ -71,7 +247,7 @@
                 <b>Resolution Where It Counts</b>:<br> Hash-based GPU-Accelerated 3D Reconstruction <br> via
                 Variance-Adaptive Voxel Grids </br>
                 <small>
-                    <strong>Transaction on Graphics</strong>
+                    <strong>ACM Transaction on Graphics</strong>
                 </small>
             </h2>
         </div>
@@ -87,7 +263,8 @@
                             Giacomini</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
                     </li>
                     <li>
-                        <a href="https://sites.google.com/dis.uniroma1.it/grisetti/home">Giorgio Grisetti</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
+                        <a href="https://sites.google.com/dis.uniroma1.it/grisetti/home">Giorgio
+                            Grisetti</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
                     </li>
                     <li>
                         <a href="https://digiamm.github.io/">Luca Di Giammarino</a></span>&nbsp;&nbsp;&nbsp;&nbsp;
@@ -109,7 +286,7 @@
                 <div class="col-md-6 col-md-offset-3 text-center">
                     <ul class="nav nav-pills nav-justified">
                         <li>
-                            <a href="https://arxiv.org/abs/xxxx.xxxxx">
+                            <a href="https://dl.acm.org/doi/10.1145/3777909">
                                 <image src="assets/paper/paper.png" height="60px">
                                     <h4><strong>Paper</strong></h4>
                             </a>
@@ -123,6 +300,50 @@
                     </ul>
                 </div>
             </div>
+
+            <div class="row hero-media-row">
+                <div class="col-md-7 col-sm-12">
+                    <video class="video" width="100%" id="teaser" loop playsinline autoplay muted
+                        src="video/office4-teaser-trimmed.mp4" onplay="resizeAndPlay(this)"
+                        style="height: 0px;"></video>
+                    <canvas height=0 class="videoMerge" id="teaserMerge"></canvas>
+                    <div class="row">
+                        <div class="col-md-8 col-md-offset-2">
+                            <p class="text-center">
+                                <!-- MrHash... <br> -->
+                                <span style="color:#DF62D3; font-size: 18px;"><b>Use the slider to switch between meshes
+                                        and
+                                        3DGS renderings</b></span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-5 col-sm-12 hero-figure-wrapper">
+                    <img class="hero-figure" src="assets/img/bog/hexagon_teaser_web_plain.svg" alt="Overall comparison">
+                </div>
+            </div>
+
+            <!-- Three smaller video viewers -->
+            <div class="row" style="margin-top: 30px;">
+                <div class="col-md-4">
+                    <video class="video" width="100%" id="teaser-small-1" loop playsinline autoplay muted
+                        src="video/office2-teaser-trimmed.mp4" onplay="resizeAndPlay(this)"
+                        style="height: 0px;"></video>
+                    <canvas height=0 class="videoMerge" id="teaser-small-1Merge"></canvas>
+                </div>
+                <div class="col-md-4">
+                    <video class="video" width="100%" id="teaser-small-2" loop playsinline autoplay muted
+                        src="video/room0-teaser-trimmed.mp4" onplay="resizeAndPlay(this)" style="height: 0px;"></video>
+                    <canvas height=0 class="videoMerge" id="teaser-small-2Merge"></canvas>
+                </div>
+                <div class="col-md-4">
+                    <video class="video" width="100%" id="teaser-small-3" loop playsinline autoplay muted
+                        src="video/office3-teaser-trimmed.mp4" onplay="resizeAndPlay(this)"
+                        style="height: 0px;"></video>
+                    <canvas height=0 class="videoMerge" id="teaser-small-3Merge"></canvas>
+                </div>
+            </div>
+
 
             <div class="row">
                 <div class="col-md-8 col-md-offset-2">
@@ -151,41 +372,915 @@
             </div>
 
             <div class="row comp-margin">
+                <div class="col-md-12 text-center">
+                    <h3>Resolution Comparisons</h3>
+                    <p class="slider-caption">Same scene, three variance thresholds (σ). Hover or drag each slider to
+                        compare the mesh with the underlying <span style="color:#248232;font-weight:600;">fine</span>
+                        and <span style="color:#b22222;font-weight:600;">coarse</span> voxels.</p>
+                </div>
+            </div>
+
+            <div class="row comparison-grid">
+                <div class="col-md-4 col-sm-6">
+                    <div class="comparison-card">
+                        <h4 class="text-center">σ = 0.001</h4>
+                        <div class="figure-slider comparison-slider">
+                            <div class="comparison-slider__image comparison-slider__image--after">
+                                <img src="assets/img/bog/scene_001.png" alt="σ = 0.001" loading="lazy">
+                            </div>
+                            <div class="comparison-slider__image comparison-slider__image--before">
+                                <img src="assets/img/bog/baseline.png" alt="Baseline figure" loading="lazy">
+                            </div>
+                            <div class="comparison-slider__handle" aria-hidden="true">
+                                <span class="comparison-slider__handle-line"></span>
+                                <span class="comparison-slider__handle-dot">
+                                    <span class="comparison-slider__chevron comparison-slider__chevron--left"></span>
+                                    <span class="comparison-slider__chevron comparison-slider__chevron--right"></span>
+                                </span>
+                            </div>
+                            <input type="range" min="0" max="100" value="50" class="comparison-slider__input"
+                                aria-label="Slide to compare baseline and variant A">
+                            <span class="comparison-slider__label comparison-slider__label--before">Mesh</span>
+                            <span class="comparison-slider__label comparison-slider__label--after">σ = 0.001</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 col-sm-6">
+                    <div class="comparison-card">
+                        <h4 class="text-center">σ = 0.005</h4>
+                        <div class="figure-slider comparison-slider">
+                            <div class="comparison-slider__image comparison-slider__image--after">
+                                <img src="assets/img/bog/scene_005.png" alt="σ = 0.005" loading="lazy">
+                            </div>
+                            <div class="comparison-slider__image comparison-slider__image--before">
+                                <img src="assets/img/bog/baseline.png" alt="Baseline figure" loading="lazy">
+                            </div>
+                            <div class="comparison-slider__handle" aria-hidden="true">
+                                <span class="comparison-slider__handle-line"></span>
+                                <span class="comparison-slider__handle-dot">
+                                    <span class="comparison-slider__chevron comparison-slider__chevron--left"></span>
+                                    <span class="comparison-slider__chevron comparison-slider__chevron--right"></span>
+                                </span>
+                            </div>
+                            <input type="range" min="0" max="100" value="50" class="comparison-slider__input"
+                                aria-label="Slide to compare baseline and variant B">
+                            <span class="comparison-slider__label comparison-slider__label--before">Mesh</span>
+                            <span class="comparison-slider__label comparison-slider__label--after">σ = 0.005</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 col-sm-6 col-sm-offset-3 col-md-offset-0">
+                    <div class="comparison-card">
+                        <h4 class="text-center">σ = 0.01</h4>
+                        <div class="figure-slider comparison-slider">
+                            <div class="comparison-slider__image comparison-slider__image--after">
+                                <img src="assets/img/bog/scene_01.png" alt="σ = 0.01" loading="lazy">
+                            </div>
+                            <div class="comparison-slider__image comparison-slider__image--before">
+                                <img src="assets/img/bog/baseline.png" alt="Baseline figure" loading="lazy">
+                            </div>
+                            <div class="comparison-slider__handle" aria-hidden="true">
+                                <span class="comparison-slider__handle-line"></span>
+                                <span class="comparison-slider__handle-dot">
+                                    <span class="comparison-slider__chevron comparison-slider__chevron--left"></span>
+                                    <span class="comparison-slider__chevron comparison-slider__chevron--right"></span>
+                                </span>
+                            </div>
+                            <input type="range" min="0" max="100" value="50" class="comparison-slider__input"
+                                aria-label="Slide to compare baseline and variant C">
+                            <span class="comparison-slider__label comparison-slider__label--before">Mesh</span>
+                            <span class="comparison-slider__label comparison-slider__label--after">σ = 0.01</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+            <div class="row comp-margin">
+            </div>
+
+            <!-- PLY Mesh Viewer Section -->
+            <div class="row mesh-viewer-section">
+                <div class="col-md-12 text-center">
+                    <h3>3D Reconstruction - Newer College</h3>
+                    <p>Drag to rotate, right-click to pan, scroll to zoom</p>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div id="mesh-viewer-0" class="mesh-viewer-container"></div>
+                </div>
+                <div class="col-md-6">
+                    <div id="mesh-viewer-1" class="mesh-viewer-container"></div>
+                </div>
             </div>
 
             <div class="row comp-margin">
-            <div class="row">
-                <div class="col-md-8 col-md-offset-2">
-                    <h3>
-                        Citation
-                    </h3>
-                    <p>
-                        If you want to cite our work, please use:
-                    </p>
-                    <pre style="font-size: 12px;">
-<!-- @article{,
-    title={},
-    author={},
-    publisher = {Association for Computing Machinery},
-    journal = {ACM Transaction on Graphics (ToG)},
-    year      = {2025},
-    doi       = {}} -->
+            </div>
 
-                    </pre>
+            <div class="row results-table-section">
+                <div class="col-md-12 text-center">
+                    <h3>Runtimes Comparison</h3>
+                    <p class="slider-caption">
+                        Runtimes per frame (ms) and FPS. Best results are
+                        highlighted as <span class="legend-swatch metric-first">first</span> and <span
+                            class="legend-swatch metric-second">second</span>. Dash indicates
+                        missing values due to failures.</p>
+                </div>
+                <div class="col-md-12">
+                    <div class="runtime-table-wrapper">
+                        <div class="results-table-responsive">
+                            <table class="runtime-table">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2">Method</th>
+                                        <th colspan="2" class="dataset-group">ScanNet</th>
+                                        <th colspan="2" class="dataset-group">Replica</th>
+                                        <th colspan="2" class="dataset-group">Oxford-Spires</th>
+                                        <th colspan="2">Newer College</th>
+                                    </tr>
+                                    <tr>
+                                        <th>Time [ms]&darr;</th>
+                                        <th>FPS&uarr;</th>
+                                        <th>Time [ms]&darr;</th>
+                                        <th>FPS&uarr;</th>
+                                        <th>Time [ms]&darr;</th>
+                                        <th>FPS&uarr;</th>
+                                        <th>Time [ms]&darr;</th>
+                                        <th>FPS&uarr;</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="method-cell">VDBFusion</td>
+                                        <td>17.45</td>
+                                        <td>5.71</td>
+                                        <td>519</td>
+                                        <td>1.93</td>
+                                        <td>40.31</td>
+                                        <td>24.65</td>
+                                        <td>103.62</td>
+                                        <td>9.61</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">PIN-SLAM</td>
+                                        <td>67.15</td>
+                                        <td>14.80</td>
+                                        <td>68</td>
+                                        <td>14.7</td>
+                                        <td>75.99</td>
+                                        <td>13.15</td>
+                                        <td>113.68</td>
+                                        <td>8.79</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">N<sup>3</sup>Mapping</td>
+                                        <td>184.67</td>
+                                        <td>5.40</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td>255.44</td>
+                                        <td>3.91</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">NKSR</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td><span class="metric-second">16.05</span></td>
+                                        <td><span class="metric-second">62.28</span></td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">Voxblox</td>
+                                        <td>132.06</td>
+                                        <td>7.57</td>
+                                        <td>373</td>
+                                        <td>2.68</td>
+                                        <td>61.72</td>
+                                        <td>16.17</td>
+                                        <td>162.47</td>
+                                        <td>6.14</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">Supereight2&dagger;</td>
+                                        <td>73.94</td>
+                                        <td>13.53</td>
+                                        <td>100.87</td>
+                                        <td>9.92</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">Supereight2&ddagger;</td>
+                                        <td>79.52</td>
+                                        <td>12.55</td>
+                                        <td>98.11</td>
+                                        <td>10.20</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">Ours (single)</td>
+                                        <td><span class="metric-first">15.11</span></td>
+                                        <td><span class="metric-first">64.30</span></td>
+                                        <td><span class="metric-first">20.45</span></td>
+                                        <td><span class="metric-first">48.9</span></td>
+                                        <td><span class="metric-first">14.27</span></td>
+                                        <td><span class="metric-first">68.86</span></td>
+                                        <td><span class="metric-second">30.18</span></td>
+                                        <td><span class="metric-second">21.6</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-cell">Ours (multi)</td>
+                                        <td><span class="metric-second">16.79</span></td>
+                                        <td><span class="metric-second">59.34</span></td>
+                                        <td><span class="metric-second">37.50</span></td>
+                                        <td><span class="metric-second">26</span></td>
+                                        <td>16.39</td>
+                                        <td>61</td>
+                                        <td><span class="metric-first">28.17</span></td>
+                                        <td><span class="metric-first">35.25</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="results-footnote">Supereight2&dagger; uses a single-resolution grid,
+                            Supereight2&ddagger; a multi-resolution grid. Our single-resolution variant is
+                            2&times;–13&times; faster than prior work across datasets.</p>
+                    </div>
                 </div>
             </div>
-            <div class="row">
-                <div class="col-md-8 col-md-offset-2">
-                    <h3>
-                        Acknowledgements
-                    </h3>
-                    <p class="text-justify">
-                        The website template was borrowed from <a href="http://mgharbi.com/">Michaël
-                            Gharbi</a> and <a href="https://jonbarron.info/mipnerf360/">MipNeRF360</a>.
-                    </p>
+
+            <div class="row results-table-section">
+                <div class="col-md-12 text-center">
+                    <h3>3D Reconstruction Results</h3>
+                    <p class="slider-caption">All pipelines run with ground-truth poses on ScanNet (RGB-D) and Newer
+                        College (LiDAR) sequences (voxel size 1&nbsp;cm and 20&nbsp;cm respectively, F-score thresholds
+                        of 10&nbsp;cm and 20&nbsp;cm). Best results are highlighted as <span
+                            class="legend-swatch metric-first">first</span> and <span
+                            class="legend-swatch metric-second">second</span>.</p>
+                </div>
+                <div class="col-md-12">
+                    <div class="results-table-wrapper">
+                        <div class="results-table-responsive">
+                            <table class="results-table">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2">Method</th>
+                                        <th rowspan="2">Metric</th>
+                                        <th colspan="7">RGB-D</th>
+                                        <th colspan="3">LiDAR</th>
+                                        <th colspan="3">Average</th>
+                                    </tr>
+                                    <tr>
+                                        <th>0000</th>
+                                        <th>0010</th>
+                                        <th>0059</th>
+                                        <th>0106</th>
+                                        <th>0109</th>
+                                        <th>0181</th>
+                                        <th class="split-col">0207</th>
+                                        <th>quad</th>
+                                        <th>math</th>
+                                        <th class="split-col">cloi</th>
+                                        <th>RGB-D</th>
+                                        <th>LiDAR</th>
+                                        <th>Overall</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="section-label">
+                                        <td></td>
+                                        <td></td>
+                                        <td colspan="7"><em><strong>RGB-D</strong></em></td>
+                                        <td colspan="3"><em><strong>LiDAR</strong></em></td>
+                                        <td colspan="3"><em><strong>Averages</strong></em></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-name" rowspan="4">PIN-SLAM</td>
+                                        <td class="metric-label">Acc. [cm]&darr;</td>
+                                        <td>2.680</td>
+                                        <td>4.069</td>
+                                        <td>5.789</td>
+                                        <td>6.540</td>
+                                        <td>2.802</td>
+                                        <td>4.161</td>
+                                        <td class="split-col">4.004</td>
+                                        <td>9.942</td>
+                                        <td>10.271</td>
+                                        <td class="split-col">9.082</td>
+                                        <td>4.292</td>
+                                        <td>9.765</td>
+                                        <td>5.934</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">Comp. [cm]&darr;</td>
+                                        <td>1.078</td>
+                                        <td><span class="metric-second">1.060</span></td>
+                                        <td>1.464</td>
+                                        <td>1.732</td>
+                                        <td><span class="metric-second">0.862</span></td>
+                                        <td><span class="metric-second">1.648</span></td>
+                                        <td class="split-col"><span class="metric-second">1.085</span></td>
+                                        <td>13.764</td>
+                                        <td>13.960</td>
+                                        <td class="split-col">14.584</td>
+                                        <td><span class="metric-second">1.276</span></td>
+                                        <td>14.103</td>
+                                        <td>5.124</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">C-L1&darr;</td>
+                                        <td>1.879</td>
+                                        <td>2.565</td>
+                                        <td>3.626</td>
+                                        <td>4.136</td>
+                                        <td>1.832</td>
+                                        <td>2.905</td>
+                                        <td class="split-col">2.544</td>
+                                        <td>11.853</td>
+                                        <td>12.116</td>
+                                        <td class="split-col">11.833</td>
+                                        <td>2.784</td>
+                                        <td>11.934</td>
+                                        <td>5.529</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">F-score [%]&uarr;</td>
+                                        <td>97.966</td>
+                                        <td>94.486</td>
+                                        <td>87.775</td>
+                                        <td>83.363</td>
+                                        <td>96.209</td>
+                                        <td>93.494</td>
+                                        <td class="split-col">93.496</td>
+                                        <td>83.724</td>
+                                        <td>83.596</td>
+                                        <td class="split-col">82.431</td>
+                                        <td>92.398</td>
+                                        <td>83.250</td>
+                                        <td>89.654</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-name" rowspan="4">VDBFusion</td>
+                                        <td class="metric-label">Acc. [cm]&darr;</td>
+                                        <td>2.217</td>
+                                        <td>2.473</td>
+                                        <td>4.615</td>
+                                        <td>5.472</td>
+                                        <td><span class="metric-second">1.603</span></td>
+                                        <td>4.090</td>
+                                        <td class="split-col">2.874</td>
+                                        <td><span class="metric-first">6.511</span></td>
+                                        <td><span class="metric-second">8.669</span></td>
+                                        <td class="split-col"><span class="metric-first">6.511</span></td>
+                                        <td>3.336</td>
+                                        <td><span class="metric-first">7.230</span></td>
+                                        <td><span class="metric-second">4.504</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">Comp. [cm]&darr;</td>
+                                        <td><span class="metric-first">0.925</span></td>
+                                        <td><span class="metric-first">0.707</span></td>
+                                        <td><span class="metric-first">1.122</span></td>
+                                        <td><span class="metric-first">0.885</span></td>
+                                        <td><span class="metric-first">0.516</span></td>
+                                        <td><span class="metric-first">0.928</span></td>
+                                        <td class="split-col"><span class="metric-first">0.779</span></td>
+                                        <td><span class="metric-first">11.645</span></td>
+                                        <td><span class="metric-first">12.684</span></td>
+                                        <td class="split-col"><span class="metric-first">12.657</span></td>
+                                        <td><span class="metric-first">0.837</span></td>
+                                        <td><span class="metric-first">12.329</span></td>
+                                        <td><span class="metric-first">4.285</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">C-L1&darr;</td>
+                                        <td><span class="metric-second">1.571</span></td>
+                                        <td>1.590</td>
+                                        <td>2.869</td>
+                                        <td>3.179</td>
+                                        <td><span class="metric-first">1.059</span></td>
+                                        <td>2.509</td>
+                                        <td class="split-col">1.826</td>
+                                        <td><span class="metric-first">9.078</span></td>
+                                        <td><span class="metric-first">10.677</span></td>
+                                        <td class="split-col"><span class="metric-first">9.584</span></td>
+                                        <td><span class="metric-second">2.086</span></td>
+                                        <td><span class="metric-first">9.780</span></td>
+                                        <td><span class="metric-second">4.394</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">F-score [%]&uarr;</td>
+                                        <td>97.052</td>
+                                        <td>95.687</td>
+                                        <td>88.896</td>
+                                        <td>85.161</td>
+                                        <td>97.659</td>
+                                        <td>89.723</td>
+                                        <td class="split-col">94.692</td>
+                                        <td><span class="metric-first">89.532</span></td>
+                                        <td><span class="metric-first">87.157</span></td>
+                                        <td class="split-col"><span class="metric-first">87.963</span></td>
+                                        <td>92.696</td>
+                                        <td><span class="metric-first">88.217</span></td>
+                                        <td><span class="metric-second">91.352</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-name" rowspan="4">Voxblox</td>
+                                        <td class="metric-label">Acc. [cm]&darr;</td>
+                                        <td>2.120</td>
+                                        <td>2.718</td>
+                                        <td>4.156</td>
+                                        <td>4.137</td>
+                                        <td>2.583</td>
+                                        <td>4.246</td>
+                                        <td class="split-col">2.678</td>
+                                        <td>9.824</td>
+                                        <td><span class="metric-first">8.619</span></td>
+                                        <td class="split-col">9.284</td>
+                                        <td><span class="metric-second">3.234</span></td>
+                                        <td>9.242</td>
+                                        <td>5.037</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">Comp. [cm]&darr;</td>
+                                        <td>1.759</td>
+                                        <td>6.168</td>
+                                        <td>2.145</td>
+                                        <td>2.304</td>
+                                        <td>9.045</td>
+                                        <td>2.638</td>
+                                        <td class="split-col">3.817</td>
+                                        <td>17.083</td>
+                                        <td>14.756</td>
+                                        <td class="split-col">26.207</td>
+                                        <td>3.982</td>
+                                        <td>19.349</td>
+                                        <td>8.592</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">C-L1&darr;</td>
+                                        <td>1.939</td>
+                                        <td>4.443</td>
+                                        <td>3.150</td>
+                                        <td>3.220</td>
+                                        <td>5.814</td>
+                                        <td>3.442</td>
+                                        <td class="split-col">3.247</td>
+                                        <td>13.453</td>
+                                        <td>11.688</td>
+                                        <td class="split-col">17.746</td>
+                                        <td>3.608</td>
+                                        <td>14.296</td>
+                                        <td>6.814</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">F-score [%]&uarr;</td>
+                                        <td>96.076</td>
+                                        <td>89.194</td>
+                                        <td>89.313</td>
+                                        <td>88.593</td>
+                                        <td>84.653</td>
+                                        <td>91.204</td>
+                                        <td class="split-col">91.329</td>
+                                        <td>79.400</td>
+                                        <td>83.699</td>
+                                        <td class="split-col">63.518</td>
+                                        <td>90.052</td>
+                                        <td>75.539</td>
+                                        <td>85.698</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-name" rowspan="4">Supereight2&dagger;</td>
+                                        <td class="metric-label">Acc. [cm]&darr;</td>
+                                        <td>2.151</td>
+                                        <td>2.364</td>
+                                        <td>5.354</td>
+                                        <td>4.781</td>
+                                        <td>2.064</td>
+                                        <td>4.221</td>
+                                        <td class="split-col">3.151</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td>3.441</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">Comp. [cm]&darr;</td>
+                                        <td>1.457</td>
+                                        <td>1.294</td>
+                                        <td>2.002</td>
+                                        <td>1.484</td>
+                                        <td>1.183</td>
+                                        <td>1.983</td>
+                                        <td class="split-col">1.470</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td>1.553</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">C-L1&darr;</td>
+                                        <td>1.804</td>
+                                        <td>1.829</td>
+                                        <td>3.678</td>
+                                        <td>3.132</td>
+                                        <td>1.623</td>
+                                        <td>3.102</td>
+                                        <td class="split-col">2.310</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td>2.497</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">F-score [%]&uarr;</td>
+                                        <td>97.478</td>
+                                        <td>97.399</td>
+                                        <td>87.040</td>
+                                        <td>88.131</td>
+                                        <td>97.073</td>
+                                        <td>91.905</td>
+                                        <td class="split-col">95.252</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td>93.468</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-name" rowspan="4">Supereight2&ddagger;</td>
+                                        <td class="metric-label">Acc. [cm]&darr;</td>
+                                        <td><span class="metric-second">1.955</span></td>
+                                        <td>2.364</td>
+                                        <td>5.250</td>
+                                        <td>4.176</td>
+                                        <td>2.064</td>
+                                        <td>3.834</td>
+                                        <td class="split-col">3.096</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td>3.248</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">Comp. [cm]&darr;</td>
+                                        <td>1.452</td>
+                                        <td>1.296</td>
+                                        <td>2.011</td>
+                                        <td>1.464</td>
+                                        <td>1.182</td>
+                                        <td>1.954</td>
+                                        <td class="split-col">1.476</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td>1.548</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">C-L1&darr;</td>
+                                        <td>1.704</td>
+                                        <td>1.830</td>
+                                        <td>3.631</td>
+                                        <td>2.820</td>
+                                        <td>1.623</td>
+                                        <td>2.894</td>
+                                        <td class="split-col">2.286</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td>2.398</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">F-score [%]&uarr;</td>
+                                        <td><span class="metric-second">98.168</span></td>
+                                        <td>97.394</td>
+                                        <td>87.454</td>
+                                        <td>90.752</td>
+                                        <td>97.075</td>
+                                        <td>93.458</td>
+                                        <td class="split-col">95.445</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td><span class="metric-second">94.250</span></td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-name" rowspan="4">N<sup>3</sup>Mapping</td>
+                                        <td class="metric-label">Acc. [cm]&darr;</td>
+                                        <td class="fail-text">fail</td>
+                                        <td><span class="metric-second">1.705</span></td>
+                                        <td><span class="metric-first">2.338</span></td>
+                                        <td><span class="metric-second">3.374</span></td>
+                                        <td>1.706</td>
+                                        <td><span class="metric-first">2.134</span></td>
+                                        <td class="split-col"><span class="metric-second">1.786</span></td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td class="fail-text">2.174</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">Comp. [cm]&darr;</td>
+                                        <td class="fail-text">fail</td>
+                                        <td>1.335</td>
+                                        <td>1.664</td>
+                                        <td>1.390</td>
+                                        <td>1.133</td>
+                                        <td>2.616</td>
+                                        <td class="split-col">1.222</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td class="fail-text">1.560</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">C-L1&darr;</td>
+                                        <td class="fail-text">fail</td>
+                                        <td><span class="metric-second">1.520</span></td>
+                                        <td><span class="metric-first">2.001</span></td>
+                                        <td><span class="metric-second">2.382</span></td>
+                                        <td>1.420</td>
+                                        <td><span class="metric-first">2.375</span></td>
+                                        <td class="split-col"><span class="metric-second">1.504</span></td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td class="fail-text">1.867</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">F-score [%]&uarr;</td>
+                                        <td class="fail-text">fail</td>
+                                        <td><span class="metric-first">98.811</span></td>
+                                        <td><span class="metric-first">96.398</span></td>
+                                        <td><span class="metric-second">93.671</span></td>
+                                        <td><span class="metric-second">98.076</span></td>
+                                        <td><span class="metric-first">97.034</span></td>
+                                        <td class="split-col"><span class="metric-first">97.293</span></td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="fail-text">fail</td>
+                                        <td class="split-col fail-text">fail</td>
+                                        <td class="fail-text">96.880</td>
+                                        <td>&mdash;</td>
+                                        <td>&mdash;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="method-name" rowspan="4">Ours</td>
+                                        <td class="metric-label">Acc. [cm]&darr;</td>
+                                        <td><span class="metric-first">0.963</span></td>
+                                        <td><span class="metric-first">1.587</span></td>
+                                        <td><span class="metric-second">2.981</span></td>
+                                        <td><span class="metric-first">2.822</span></td>
+                                        <td><span class="metric-first">1.364</span></td>
+                                        <td><span class="metric-second">2.789</span></td>
+                                        <td class="split-col"><span class="metric-first">1.701</span></td>
+                                        <td><span class="metric-second">7.134</span></td>
+                                        <td>9.061</td>
+                                        <td class="split-col"><span class="metric-second">7.015</span></td>
+                                        <td><span class="metric-first">2.030</span></td>
+                                        <td><span class="metric-second">7.737</span></td>
+                                        <td><span class="metric-first">3.742</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">Comp. [cm]&darr;</td>
+                                        <td><span class="metric-second">1.053</span></td>
+                                        <td>1.079</td>
+                                        <td><span class="metric-second">1.414</span></td>
+                                        <td><span class="metric-second">1.202</span></td>
+                                        <td>0.961</td>
+                                        <td>1.968</td>
+                                        <td class="split-col">1.234</td>
+                                        <td><span class="metric-second">11.898</span></td>
+                                        <td><span class="metric-second">13.116</span></td>
+                                        <td class="split-col"><span class="metric-second">14.208</span></td>
+                                        <td><span class="metric-second">1.273</span></td>
+                                        <td><span class="metric-second">13.074</span></td>
+                                        <td><span class="metric-second">4.813</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">C-L1&darr;</td>
+                                        <td><span class="metric-first">1.008</span></td>
+                                        <td><span class="metric-first">1.333</span></td>
+                                        <td><span class="metric-second">2.198</span></td>
+                                        <td><span class="metric-first">2.012</span></td>
+                                        <td><span class="metric-second">1.162</span></td>
+                                        <td><span class="metric-second">2.379</span></td>
+                                        <td class="split-col"><span class="metric-first">1.366</span></td>
+                                        <td><span class="metric-second">9.516</span></td>
+                                        <td><span class="metric-second">11.088</span></td>
+                                        <td class="split-col"><span class="metric-second">10.612</span></td>
+                                        <td><span class="metric-first">1.637</span></td>
+                                        <td><span class="metric-second">10.405</span></td>
+                                        <td><span class="metric-first">4.267</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="metric-label">F-score [%]&uarr;</td>
+                                        <td><span class="metric-first">99.674</span></td>
+                                        <td><span class="metric-second">98.408</span></td>
+                                        <td><span class="metric-second">94.124</span></td>
+                                        <td><span class="metric-first">94.200</span></td>
+                                        <td><span class="metric-first">98.079</span></td>
+                                        <td><span class="metric-second">96.183</span></td>
+                                        <td class="split-col"><span class="metric-second">97.246</span></td>
+                                        <td><span class="metric-second">89.503</span></td>
+                                        <td><span class="metric-second">85.811</span></td>
+                                        <td class="split-col"><span class="metric-second">84.815</span></td>
+                                        <td><span class="metric-first">96.845</span></td>
+                                        <td><span class="metric-second">86.710</span></td>
+                                        <td><span class="metric-first">93.804</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="results-footnote">Supereight2&dagger; uses a single-resolution grid,
+                            Supereight2&ddagger; a multi-resolution grid. Both Supereight2 variants and
+                            N<sup>3</sup>Mapping fail on all LiDAR sequences; averages in red are computed only where
+                            reconstructions succeed.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row comp-margin">
+                <div class="row">
+                    <div class="col-md-8 col-md-offset-2">
+                        <h3>
+                            Citation
+                        </h3>
+                        <p>
+                            If you want to cite our work, please use:
+                        </p>
+                        <pre style="font-size: 12px;">
+@article{10.1145/3777909,
+author = {De Rebotti, Lorenzo and Giacomini, Emanuele and Grisetti, Giorgio and Di Giammarino, Luca},
+title = {Resolution Where It Counts: Hash-based GPU-Accelerated 3D Reconstruction via Variance-Adaptive Voxel Grids},
+year = {2025},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+issn = {0730-0301},
+url = {https://doi.org/10.1145/3777909},
+doi = {10.1145/3777909},
+journal = {ACM Trans. Graph.},
+keywords = {Surface Reconstruction, Novel View Synthesis, Gaussian Splatting}}
+                    </pre>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-8 col-md-offset-2">
+                        <h3>
+                            Acknowledgements
+                        </h3>
+                        <p class="text-justify">
+                            The website template was borrowed from <a href="http://mgharbi.com/">Michaël
+                                Gharbi</a> and <a href="https://jonbarron.info/mipnerf360/">MipNeRF360</a>.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
+    </div>
+
+    <script>
+        // Initialize PLY Mesh Viewers
+        let meshViewers = [];
+
+        // Wait for DOM and Three.js to be ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initViewers);
+        } else {
+            initViewers();
+        }
+
+        function initViewers() {
+            // Wait a bit to ensure Three.js is loaded
+            setTimeout(() => {
+                if (typeof THREE === 'undefined') {
+                    console.error('Three.js not loaded');
+                    return;
+                }
+
+                if (typeof PLYMeshViewer === 'undefined') {
+                    console.error('PLYMeshViewer not loaded');
+                    return;
+                }
+
+                try {
+                    const viewerLeft = new PLYMeshViewer('mesh-viewer-0', {
+                        backgroundColor: 0x1a1a1a,
+                        meshColor: 0xa3c1d5,
+                        forceMeshColor: true,
+                        wireframe: false,
+                        autoRotate: false,
+                        initialOrbit: {
+                            theta: 0.010078896370001958,
+                            phi: 2.264591100710451, radius: 2.5031493102571134,
+                            target: {
+                                x: 0.20170695278003237,
+                                y: -0.3040118674601561,
+                                z: -0.479400530452332
+                            }
+                        }
+                    });
+
+                    const viewerRight = new PLYMeshViewer('mesh-viewer-1', {
+                        backgroundColor: 0x1a1a1a,
+                        meshColor: 0xa3c1d5,
+                        forceMeshColor: true,
+                        wireframe: false,
+                        autoRotate: false,
+                        initialOrbit: {
+                            theta: 0.007212494037575738,
+                            phi: 2.48539457737385, radius: 2.897834442545562,
+                            target: { x: -0.22908360541752645, y: -0.3561755811921515, z: -0.4609069045820054 }
+                        }
+                    });
+
+                    meshViewers = [viewerLeft, viewerRight];
+
+                    window.logViewerOrbit = function (index) {
+                        const viewer = meshViewers[index];
+                        if (!viewer || !viewer.getCurrentViewState) {
+                            console.warn('Viewer not ready or does not expose getCurrentViewState');
+                            return;
+                        }
+
+                        const state = viewer.getCurrentViewState();
+                        console.log(`Viewer ${index} view state:`, {
+                            theta: state.theta,
+                            thetaDegrees: THREE.MathUtils.radToDeg(state.theta),
+                            phi: state.phi,
+                            phiDegrees: THREE.MathUtils.radToDeg(state.phi),
+                            radius: state.radius,
+                            target: state.target
+                        });
+                    };
+
+                    // Define mesh files to load for the two viewers
+                    const meshFiles = [
+                        'assets/observatory-01_ours.ply',
+                        'assets/quad-easy_ours.ply'
+                    ];
+
+                    // Load different meshes in each viewer
+                    setTimeout(() => {
+                        meshViewers.forEach((viewer, index) => {
+                            const meshFile = meshFiles[index];
+                            viewer.loadPLY(meshFile)
+                                .then(() => {
+                                    console.log(`Viewer ${index + 1}: Loaded ${meshFile}`);
+                                })
+                                .catch(err => {
+                                    console.error(`Viewer ${index + 1}: Failed to load ${meshFile}`, err);
+                                });
+                        });
+                    }, 100);
+
+                } catch (error) {
+                    console.error('Error initializing viewers:', error);
+                }
+            }, 100);
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            meshViewers.forEach(viewer => {
+                if (viewer && viewer.dispose) {
+                    viewer.dispose();
+                }
+            });
+        });
+    </script>
 </body>
 
 </html>
