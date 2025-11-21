@@ -224,18 +224,56 @@
             font-weight: 600;
         }
 
+        .hero-media-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: stretch;
+            margin-left: 0;
+            margin-right: 0;
+        }
+
+        .hero-media-row .hero-media-col {
+            float: none;
+            display: flex;
+            flex-direction: column;
+            flex: 0 0 auto;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        @media (max-width: 991px) {
+            .hero-media-row {
+                display: block;
+            }
+
+            .hero-media-row .hero-media-col {
+                display: block;
+            }
+        }
+
+        .hero-figure-wrapper {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
         .hero-figure {
-            width: 100%;
-            max-width: 480px;
+            width: auto;
+            max-width: 100%;
+            height: auto;
+            max-height: 640px;
+            object-fit: contain;
             display: block;
             margin: 0 auto;
         }
 
-        .hero-figure-wrapper {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 95px 0 10px;
+        .hero-slider-caption {
+            color: #DF62D3;
+            font-size: 18px;
+            font-weight: 700;
+            margin: 12px 0 6px;
         }
     </style>
 </head>
@@ -302,24 +340,25 @@
             </div>
 
             <div class="row hero-media-row">
-                <div class="col-md-7 col-sm-12">
+                <div class="col-md-7 col-sm-12 hero-media-col">
                     <video class="video" width="100%" id="teaser" loop playsinline autoplay muted
                         src="video/office4-teaser-trimmed.mp4" onplay="resizeAndPlay(this)"
                         style="height: 0px;"></video>
                     <canvas height=0 class="videoMerge" id="teaserMerge"></canvas>
-                    <div class="row">
-                        <div class="col-md-8 col-md-offset-2">
-                            <p class="text-center">
-                                <!-- MrHash... <br> -->
-                                <span style="color:#DF62D3; font-size: 18px;"><b>Use the slider to switch between meshes
-                                        and
-                                        3DGS renderings</b></span>
-                            </p>
-                        </div>
+                </div>
+                <div class="col-md-5 col-sm-12 hero-media-col">
+                    <div class="hero-figure-wrapper">
+                        <img class="hero-figure" src="assets/img/bog/hexagon_teaser_web_plain.svg"
+                            alt="Overall comparison">
                     </div>
                 </div>
-                <div class="col-md-5 col-sm-12 hero-figure-wrapper">
-                    <img class="hero-figure" src="assets/img/bog/hexagon_teaser_web_plain.svg" alt="Overall comparison">
+            </div>
+
+            <div class="row">
+                <div class="col-md-8 col-md-offset-2">
+                    <p class="text-center hero-slider-caption">
+                        Use the slider to switch between meshes and 3DGS renderings
+                    </p>
                 </div>
             </div>
 
@@ -1280,6 +1319,54 @@ keywords = {Surface Reconstruction, Novel View Synthesis, Gaussian Splatting}}
                 }
             });
         });
+
+        // Synchronize hero figure column height with teaser video height on wide screens
+        (function () {
+            const teaserVideo = document.getElementById('teaser');
+            const teaserMerge = document.getElementById('teaserMerge');
+            const heroFigureWrapper = document.querySelector('.hero-figure-wrapper');
+            const heroFigureImage = heroFigureWrapper ? heroFigureWrapper.querySelector('.hero-figure') : null;
+            const BREAKPOINT = 992;
+
+            if (!teaserVideo || !teaserMerge || !heroFigureWrapper || !heroFigureImage) {
+                return;
+            }
+
+            function applyHeight(heightPx) {
+                if (heightPx > 0) {
+                    heroFigureWrapper.style.height = `${heightPx}px`;
+                    heroFigureImage.style.height = '100%';
+                } else {
+                    heroFigureWrapper.style.height = '';
+                    heroFigureImage.style.height = '';
+                }
+            }
+
+            function syncHeroHeight() {
+                if (window.innerWidth < BREAKPOINT) {
+                    applyHeight(0);
+                    return;
+                }
+
+                const videoHeight = teaserMerge.getBoundingClientRect().height;
+                applyHeight(videoHeight);
+            }
+
+            ['loadedmetadata', 'loadeddata', 'canplay', 'play'].forEach(evt => {
+                teaserVideo.addEventListener(evt, syncHeroHeight);
+            });
+
+            window.addEventListener('resize', syncHeroHeight);
+            window.addEventListener('orientationchange', syncHeroHeight);
+
+            if (typeof ResizeObserver !== 'undefined') {
+                const observer = new ResizeObserver(syncHeroHeight);
+                observer.observe(teaserMerge);
+            }
+
+            setTimeout(syncHeroHeight, 300);
+        })();
+
     </script>
 </body>
 
