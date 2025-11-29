@@ -648,7 +648,7 @@ class PLYMeshViewer {
 
         // Auto-rotate
         if (this.options.autoRotate && this.mesh) {
-            this.mesh.rotation.y += 0.01 * this.options.autoRotateSpeed;
+            this.mesh.rotation.z += 0.005 * this.options.autoRotateSpeed;
         }
 
         this.renderer.render(this.scene, this.camera);
