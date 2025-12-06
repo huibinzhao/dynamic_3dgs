@@ -27,9 +27,7 @@ class Ros1Reader:
             print("Rosbags library not installed, run 'pip install -U rosbags'")
             sys.exit(-1)
 
-        self.gt_poses_dict = self.read_gt_poses_file(
-            data_dir.joinpath("colosseo_train0_gt.txt")
-        )
+        self.gt_poses_dict = self.read_gt_poses_file(data_dir.joinpath("poses.txt"))
         self.gt_keys = np.array(sorted(self.gt_poses_dict.keys()))
 
         if data_dir.is_file():
