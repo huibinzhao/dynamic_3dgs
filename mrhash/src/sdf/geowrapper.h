@@ -56,6 +56,23 @@ namespace pygeowrapper {
 
     cupanutils::cugeoutils::CUDAMatrixf view_depth_;
 
+    // Dynamic object detection
+    bool dynamic_detection_enabled_ = false;
+    int dynamic_erosion_size_       = 15;
+    int dynamic_dilation_size_      = 10;
+    float dynamic_flood_threshold_  = 0.007f;
+    cupanutils::cugeoutils::CUDAMatrixb dynamic_mask_;
+
+    // Mask saving
+    bool save_dynamic_mask_ = false;
+    std::string mask_output_path_ = "";
+    int frame_count_ = 0;
+
+    // GS only on frames with dynamic objects
+    bool gs_only_dynamic_frames_ = false;
+
+    void refineDynamicMask();
+
   public:
     ~GeoWrapper();
 
@@ -76,6 +93,20 @@ namespace pygeowrapper {
                bool projective_sdf                           = default_projective_sdf);
 
     // clang-format off
+    void enableDynamicDetection(bool enable) { dynamic_detection_enabled_ = enable; }
+    bool isDynamicDetectionEnabled() const { return dynamic_detection_enabled_; }
+    void setDynamicErosionSize(int size) { dynamic_erosion_size_ = size; }
+    int getDynamicErosionSize() const { return dynamic_erosion_size_; }
+    void setDynamicDilationSize(int size) { dynamic_dilation_size_ = size; }
+    int getDynamicDilationSize() const { return dynamic_dilation_size_; }
+    void setDynamicFloodThreshold(float threshold) { dynamic_flood_threshold_ = threshold; }
+    float getDynamicFloodThreshold() const { return dynamic_flood_threshold_; }
+    void setSaveDynamicMask(bool save) { save_dynamic_mask_ = save; }
+    bool getSaveDynamicMask() const { return save_dynamic_mask_; }
+    void setMaskOutputPath(const std::string& path) { mask_output_path_ = path; }
+    std::string getMaskOutputPath() const { return mask_output_path_; }
+    void setGSOnlyDynamicFrames(bool enable) { gs_only_dynamic_frames_ = enable; }
+    bool getGSOnlyDynamicFrames() const { return gs_only_dynamic_frames_; }
     int getHashNumBuckets() const { return hash_num_buckets_; }
     int getNumSdfBlocks() const { return num_sdf_blocks_; }
     int getHashBucketSize() const { return hash_bucket_size_; }

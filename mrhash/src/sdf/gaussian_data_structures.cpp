@@ -49,7 +49,8 @@ namespace cupanutils {
       Camera& camera,
       VoxelContainer<T>& container,
       cupanutils::cugeoutils::CUDAMatrixuc3& rgb_img,
-      cupanutils::cugeoutils::CUDAMatrixf& depth_img) {
+      cupanutils::cugeoutils::CUDAMatrixf& depth_img,
+      cupanutils::cugeoutils::CUDAMatrixb* dynamic_mask) {
   gs::CUDAQTree qtree(gs_model_.optimParams.qtree_thresh,
           gs_model_.optimParams.qtree_min_pixel_size,
           d_qtree_nodes_,
@@ -65,6 +66,26 @@ namespace cupanutils {
       cur_gt_img_                = image_tensor.to(torch::kFloat32).permute({2, 0, 1}).clone() / 255.f;
       cur_gt_img_                = torch::clamp(cur_gt_img_, 0.f, 1.f);
       gt_img_list_.push_back(cur_gt_img_);
+
+      // Build mask tensor for training: 1 = static (use), 0 = dynamic (ignore)
+      if (dynamic_mask != nullptr && dynamic_mask->size() > 0) {
+        dynamic_mask->toHost();
+        auto mask_tensor = torch::ones({1, dynamic_mask->rows(), dynamic_mask->cols()},
+                                       torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU));
+        auto mask_accessor = mask_tensor.accessor<float, 3>();
+        for (int r = 0; r < dynamic_mask->rows(); ++r) {
+          for (int c = 0; c < dynamic_mask->cols(); ++c) {
+            if (dynamic_mask->at(r, c)) {
+              mask_accessor[0][r][c] = 0.f;
+            }
+          }
+        }
+        cur_mask_tensor_ = mask_tensor.to(torch::kCUDA);
+      } else {
+        cur_mask_tensor_ = torch::ones({1, rgb_img.rows(), rgb_img.cols()},
+                                       torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+      }
+      mask_list_.push_back(cur_mask_tensor_);
     }
 
     template <typename T>
@@ -79,6 +100,7 @@ namespace cupanutils {
         if (!gs_model_.optimParams.keep_all_frames) {
           gs_cam_list_.pop_back();
           gt_img_list_.pop_back();
+          mask_list_.pop_back();
         }
       }
 
@@ -98,8 +120,10 @@ namespace cupanutils {
       for (int iter = 0; iter < iters; iter++) {
         auto [image, viewspace_point_tensor, visibility_filter, radii] = gs::render(cur_gs_cam_, gs_model_);
 
-        // Loss Computations
-        auto loss = gs::l1_loss(image, cur_gt_img_);
+        // Loss Computations: mask out dynamic regions
+        auto masked_image = image * cur_mask_tensor_;
+        auto masked_gt    = cur_gt_img_ * cur_mask_tensor_;
+        auto loss         = gs::l1_loss(masked_image, masked_gt);
 
         // Optimization
         loss.backward();
@@ -122,11 +146,14 @@ namespace cupanutils {
           kf_iters = kf_indices.size();
         }
         for (int i = 0; i < kf_iters; i++) {
-          auto kf_gt_img = gt_img_list_[kf_indices[i]];
-          auto kf_gs_cam = gs_cam_list_[kf_indices[i]];
+          auto kf_gt_img  = gt_img_list_[kf_indices[i]];
+          auto kf_gs_cam  = gs_cam_list_[kf_indices[i]];
+          auto kf_mask    = mask_list_[kf_indices[i]];
 
           auto [image, viewspace_point_tensor, visibility_filter, radii] = gs::render(kf_gs_cam, gs_model_);
-          auto loss                                                      = gs::l1_loss(image, kf_gt_img);
+          auto masked_image = image * kf_mask;
+          auto masked_gt    = kf_gt_img * kf_mask;
+          auto loss         = gs::l1_loss(masked_image, masked_gt);
           loss.backward();
           gs_model_.optimizer->step();
           gs_model_.optimizer->zero_grad(true);
@@ -140,7 +167,8 @@ namespace cupanutils {
     GaussianContainer<T, std::enable_if_t<is_voxel_derived<T>::value>>::runGS(Camera& camera,
                                                                               VoxelContainer<T>& container,
                                                                               cupanutils::cugeoutils::CUDAMatrixuc3& rgb_img,
-                                                                              cupanutils::cugeoutils::CUDAMatrixf& depth_img) {
+                                                                              cupanutils::cugeoutils::CUDAMatrixf& depth_img,
+                                                                              cupanutils::cugeoutils::CUDAMatrixb* dynamic_mask) {
       size_t free_byte;
       size_t total_byte;
       cudaMemGetInfo(&free_byte, &total_byte);
@@ -150,8 +178,8 @@ namespace cupanutils {
         return;
       }
       setupGSCamera(camera);
-      extractNodesQTree(camera, container, rgb_img, depth_img);
-      checkNodes(camera, container, rgb_img, depth_img);
+      extractNodesQTree(camera, container, rgb_img, depth_img, dynamic_mask);
+      checkNodes(camera, container, rgb_img, depth_img, dynamic_mask);
       optimizeGS();
     }
 
@@ -165,12 +193,15 @@ namespace cupanutils {
         for (int i = 0; i < indices.size(); i++) {
           auto cur_gt_img = gt_img_list_[indices[i]];
           auto cur_gs_cam = gs_cam_list_[indices[i]];
+          auto cur_mask   = mask_list_[indices[i]];
 
           auto [image, viewspace_point_tensor, visibility_filter, radii] = gs::render(cur_gs_cam, gs_model_);
 
-          // Loss Computations
-          auto l1_loss   = gs::l1_loss(image, cur_gt_img);
-          auto ssim_loss = gs::ssim(image, cur_gt_img, gs::conv_window, gs::window_size, gs::channel);
+          // Loss Computations: mask out dynamic regions
+          auto masked_image = image * cur_mask;
+          auto masked_gt    = cur_gt_img * cur_mask;
+          auto l1_loss   = gs::l1_loss(masked_image, masked_gt);
+          auto ssim_loss = gs::ssim(masked_image, masked_gt, gs::conv_window, gs::window_size, gs::channel);
           auto loss      = (1.f - lambda) * l1_loss + lambda * (1.f - ssim_loss);
 
           // Optimization

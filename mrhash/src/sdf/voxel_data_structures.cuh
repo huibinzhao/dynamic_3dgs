@@ -180,6 +180,8 @@ namespace cupanutils {
                                   const CUDAVectorf weights,
                                   const Camera& camera);
       __host__ void integrateDepthMap(const CUDAMatrixf3& point_cloud_img, const CUDAMatrixuc3& rgb_img, const Camera& camera);
+      __host__ void
+      integrateDepthMapMasked(const CUDAMatrixf3& point_cloud_img, const CUDAMatrixuc3& rgb_img, const Camera& camera, const CUDAMatrixb& mask);
       __host__ void reintegrateDepthMap(const CUDAMatrixf3& point_cloud_img, const CUDAMatrixuc3& rgb_img, const Camera& camera);
       __host__ void
       integrate3D(const CUDAVectorf3& point_cloud, const CUDAVectorf3& normals, const CUDAVectorf& weights, const Camera& camera);
@@ -191,11 +193,17 @@ namespace cupanutils {
                      const CUDAMatrixuc3& rgb_img,
                      const Camera& camera,
                      const int max_num_frames);
+      void integrate(const CUDAMatrixf3& point_cloud_img,
+                     const CUDAMatrixuc3& rgb_img,
+                     const Camera& camera,
+                     const int max_num_frames,
+                     const CUDAMatrixb& dynamic_mask);
       void integrate(const CUDAVectorf3& point_cloud,
                      const CUDAVectorf3& normals,
                      const CUDAVectorf& weights,
                      const Camera& camera,
                      const int max_num_frames);
+      __host__ void computeResidualMask(const CUDAMatrixf3& point_cloud_img, const Camera& camera, CUDAMatrixb& mask, CUDAMatrixf* residual_map = nullptr);
       __host__ void garbageCollect(const Camera& camera, const int max_num_frames);
 
       // some internal methods

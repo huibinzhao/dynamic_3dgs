@@ -193,12 +193,14 @@ namespace cupanutils {
 #ifdef __CUDACC__
       fill_kernel<<<n_blocks_, n_threads_>>>(buffers_[Device], value, capacity_);
       CUDA_CHECK(cudaDeviceSynchronize());
+      if (!device_only)
+        toHost();
 #else
       for (size_t i = 0; i < capacity_; ++i)
         buffers_[Host][i] = value;
-#endif
       if (!device_only)
-        toHost();
+        toDevice();
+#endif
     }
 
     using CUDAMatrixf   = DualMatrix_<float>;

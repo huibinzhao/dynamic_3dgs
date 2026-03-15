@@ -96,6 +96,32 @@ namespace cupanutils {
         allocBlocks(point_cloud_img, camera);
         flatAndReduceHashTable(camera);
         integrateDepthMap(point_cloud_img, rgb_img, camera);
+        // Only perform adaptive voxel adjustment if enabled and variance threshold is set
+        if (sdf_var_threshold_ > 0.f && num_integrated_frames_ > 0) {
+          checkVarSDF();
+          reallocBlocks();
+          flatAndReduceHashTable(camera);
+          reintegrateDepthMap(point_cloud_img, rgb_img, camera);
+        }
+        if (max_num_frames > 0)
+          garbageCollect(camera, max_num_frames);
+        num_integrated_frames_++;
+      }
+      integration_profiler_.write(current_occupied_blocks_);
+    }
+
+    template <typename T>
+    void VoxelContainer<T, std::enable_if_t<is_voxel_derived<T>::value>>::integrate(const CUDAMatrixf3& point_cloud_img,
+                                                                                    const CUDAMatrixuc3& rgb_img,
+                                                                                    const Camera& camera,
+                                                                                    const int max_num_frames,
+                                                                                    const CUDAMatrixb& dynamic_mask) {
+      {
+        CUDAProfiler::CUDAEvent event(integration_profiler_);
+        allocBlocks(point_cloud_img, camera);
+        flatAndReduceHashTable(camera);
+        integrateDepthMapMasked(point_cloud_img, rgb_img, camera, dynamic_mask);
+        // Only perform adaptive voxel adjustment if enabled and variance threshold is set
         if (sdf_var_threshold_ > 0.f && num_integrated_frames_ > 0) {
           checkVarSDF();
           reallocBlocks();
@@ -120,6 +146,7 @@ namespace cupanutils {
         allocBlocks3D(point_cloud, normals, weights, camera);
         flatAndReduceHashTable();
         integrate3D(point_cloud, normals, weights, camera);
+        // Only perform adaptive voxel adjustment if enabled and variance threshold is set
         if (sdf_var_threshold_ > 0.f && num_integrated_frames_ > 0) {
           checkVarSDF();
           reallocBlocks();

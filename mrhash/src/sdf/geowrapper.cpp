@@ -3,6 +3,9 @@
 #include "serializer.h"
 #include "surface_normal_estimator/mad_tree.h"
 #include <vector>
+#include <sys/stat.h>
+
+#include <opencv2/imgproc.hpp>
 
 namespace pygeowrapper {
 
@@ -137,14 +140,175 @@ namespace pygeowrapper {
     if (voxelhasher_->getHeapHighFreeCount() <= stream_threshold * num_sdf_blocks_)
       streamer_->stream(curr_pose_.translation(), camera_->maxDepth());
 
+    // Dynamic object detection: compute and refine mask before integration
+    // Note: First frame (num_integrated_frames_ == 0) skips dynamic detection and integrates directly into TSDF
+    // Subsequent frames perform dynamic object detection and use mask filtering during integration
+    bool use_dynamic_mask = false;
+    if (dynamic_detection_enabled_ && depth_img_.size() && rgb_img_.size() && voxelhasher_->num_integrated_frames_ > 0) {
+      // Initialize mask to all-false
+      dynamic_mask_.resize(depth_img_.rows(), depth_img_.cols());
+      dynamic_mask_.fill(false);
+
+      // Compute per-pixel residual against existing TSDF model
+      cupanutils::cugeoutils::CUDAMatrixf residual_map;
+      cupanutils::cugeoutils::CUDAMatrixf* residual_map_ptr = nullptr;
+      if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+        residual_map.resize(depth_img_.rows(), depth_img_.cols());
+        residual_map.fill(0.f);
+        residual_map_ptr = &residual_map;
+      }
+      voxelhasher_->computeResidualMask(point_cloud_img, *camera_, dynamic_mask_, residual_map_ptr);
+
+      // Save raw mask and residual heatmap before post-processing
+      if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+        dynamic_mask_.toHost();
+        cv::Mat raw_mask(dynamic_mask_.rows(), dynamic_mask_.cols(), CV_8UC1);
+        for (int r = 0; r < dynamic_mask_.rows(); ++r)
+          for (int c = 0; c < dynamic_mask_.cols(); ++c)
+            raw_mask.at<uchar>(r, c) = dynamic_mask_.at(r, c) ? 255 : 0;
+        char raw_filename[256];
+        snprintf(raw_filename, sizeof(raw_filename), "%s/raw/mask_%06d.png", mask_output_path_.c_str(), frame_count_);
+        cv::imwrite(raw_filename, raw_mask);
+
+        // Save residual heatmap: |sdf| scaled to [0, 255], max at truncation
+        residual_map.toHost();
+        cv::Mat heatmap(residual_map.rows(), residual_map.cols(), CV_8UC1);
+        for (int r = 0; r < residual_map.rows(); ++r)
+          for (int c = 0; c < residual_map.cols(); ++c) {
+            float val = residual_map.at(r, c) / sdf_truncation_ * 255.f;
+            heatmap.at<uchar>(r, c) = static_cast<uchar>(fminf(val, 255.f));
+          }
+        cv::Mat color_heatmap;
+        cv::applyColorMap(heatmap, color_heatmap, cv::COLORMAP_JET);
+        char heatmap_filename[256];
+        snprintf(heatmap_filename, sizeof(heatmap_filename), "%s/raw/residual_%06d.png", mask_output_path_.c_str(), frame_count_);
+        cv::imwrite(heatmap_filename, color_heatmap);
+      }
+
+      // Refine mask on CPU: erosion → flood fill → dilation
+      refineDynamicMask();
+
+      use_dynamic_mask = true;
+
+      // Save mask if enabled
+      if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+        dynamic_mask_.toHost();
+        cv::Mat mask_img(dynamic_mask_.rows(), dynamic_mask_.cols(), CV_8UC1);
+        for (int r = 0; r < dynamic_mask_.rows(); ++r) {
+          for (int c = 0; c < dynamic_mask_.cols(); ++c) {
+            mask_img.at<uchar>(r, c) = dynamic_mask_.at(r, c) ? 255 : 0;
+          }
+        }
+        char filename[256];
+        sprintf(filename, "%s/mask_%06d.png", mask_output_path_.c_str(), frame_count_);
+        cv::imwrite(filename, mask_img);
+      }
+    }
+    frame_count_++;
+
     if (depth_img_.size() && rgb_img_.size()) {
-      voxelhasher_->integrate(point_cloud_img, rgb_img_, *camera_, n_frames_invalidate_voxels_);
-      if (gs_container_)
-        gs_container_->runGS(*camera_, *voxelhasher_, rgb_img_, depth_img_);
+      if (use_dynamic_mask) {
+        voxelhasher_->integrate(point_cloud_img, rgb_img_, *camera_, n_frames_invalidate_voxels_, dynamic_mask_);
+      } else {
+        voxelhasher_->integrate(point_cloud_img, rgb_img_, *camera_, n_frames_invalidate_voxels_);
+      }
+      if (gs_container_) {
+        // When gs_only_dynamic_frames_ is enabled, only run GS on frames that contain dynamic objects
+        bool skip_gs = false;
+        if (gs_only_dynamic_frames_ && !use_dynamic_mask) {
+          skip_gs = true;
+        }
+        if (gs_only_dynamic_frames_ && use_dynamic_mask) {
+          // Check if mask actually contains any dynamic pixels
+          dynamic_mask_.toHost();
+          bool has_dynamic = false;
+          for (int r = 0; r < dynamic_mask_.rows() && !has_dynamic; ++r)
+            for (int c = 0; c < dynamic_mask_.cols() && !has_dynamic; ++c)
+              if (dynamic_mask_.at(r, c))
+                has_dynamic = true;
+          if (!has_dynamic)
+            skip_gs = true;
+        }
+        if (!skip_gs)
+          gs_container_->runGS(*camera_, *voxelhasher_, rgb_img_, depth_img_,
+                               use_dynamic_mask ? &dynamic_mask_ : nullptr);
+      }
     }
 
     if (point_cloud_.size())
       voxelhasher_->integrate(point_cloud_, eigenvectors_, weights_, *camera_, n_frames_invalidate_voxels_);
+  }
+
+  void GeoWrapper::refineDynamicMask() {
+    // Transfer mask from GPU to CPU
+    dynamic_mask_.toHost();
+
+    const int rows = dynamic_mask_.rows();
+    const int cols = dynamic_mask_.cols();
+
+    // Convert CUDAMatrixb to cv::Mat (CV_8UC1)
+    cv::Mat mask(rows, cols, CV_8UC1);
+    for (int r = 0; r < rows; ++r) {
+      for (int c = 0; c < cols; ++c) {
+        mask.at<uchar>(r, c) = dynamic_mask_.at(r, c) ? 255 : 0;
+      }
+    }
+
+    // Step 1: Erosion - remove noise from initial mask
+    cv::Mat erosion_kernel =
+      cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(2 * dynamic_erosion_size_ + 1, 2 * dynamic_erosion_size_ + 1));
+    cv::Mat eroded_mask;
+    cv::erode(mask, eroded_mask, erosion_kernel);
+
+    // Step 2: Flood fill from eroded seeds with depth continuity constraint
+    std::vector<std::pair<int, int>> seeds;
+    for (int r = 0; r < rows; ++r) {
+      for (int c = 0; c < cols; ++c) {
+        mask.at<uchar>(r, c) = 0; // Reset mask
+        if (eroded_mask.at<uchar>(r, c) > 0) {
+          seeds.emplace_back(r, c);
+        }
+      }
+    }
+
+    const float flood_threshold = dynamic_flood_threshold_; // relative depth difference
+    while (!seeds.empty()) {
+      auto [r, c] = seeds.back();
+      seeds.pop_back();
+
+      float d = depth_img_.at(r, c);
+      if (d > 0.f && mask.at<uchar>(r, c) == 0) {
+        mask.at<uchar>(r, c) = 255;
+
+        auto tryNeighbor = [&](int nr, int nc) {
+          if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+            float nd = depth_img_.at(nr, nc);
+            if (nd > 0.f && mask.at<uchar>(nr, nc) == 0 && fabsf(nd - d) < flood_threshold * d) {
+              seeds.emplace_back(nr, nc);
+            }
+          }
+        };
+        tryNeighbor(r - 1, c);
+        tryNeighbor(r + 1, c);
+        tryNeighbor(r, c - 1);
+        tryNeighbor(r, c + 1);
+      }
+    }
+
+    // Step 3: Dilation - expand mask to cover object boundaries
+    cv::Mat dilation_kernel =
+      cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(2 * dynamic_dilation_size_ + 1, 2 * dynamic_dilation_size_ + 1));
+    cv::dilate(mask, mask, dilation_kernel);
+
+    // Convert back to CUDAMatrixb
+    for (int r = 0; r < rows; ++r) {
+      for (int c = 0; c < cols; ++c) {
+        dynamic_mask_.at(r, c) = mask.at<uchar>(r, c) > 0;
+      }
+    }
+
+    // Transfer refined mask back to GPU
+    dynamic_mask_.toDevice();
   }
 
   void GeoWrapper::extractMesh(const std::string& filename) {

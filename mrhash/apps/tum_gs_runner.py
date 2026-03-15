@@ -47,6 +47,12 @@ def main(
     integration_weight_sample = data_cf["map"]["integration_weight_sample"]
     virtual_voxel_size = data_cf["map"]["virtual_voxel_size"]
     n_frames_invalidate_voxels = data_cf["map"]["n_frames_invalidate_voxels"]
+    dynamic_detection = data_cf["map"].get("dynamic_detection", False)
+    dynamic_erosion_size = data_cf["map"].get("dynamic_erosion_size", 15)
+    dynamic_dilation_size = data_cf["map"].get("dynamic_dilation_size", 10)
+    dynamic_flood_threshold = data_cf["map"].get("dynamic_flood_threshold", 0.007)
+    save_dynamic_mask = data_cf["map"].get("save_dynamic_mask", False)
+    gs_only_dynamic_frames = data_cf["map"].get("gs_only_dynamic_frames", False)
 
     voxel_extents_scale = data_cf["streamer"]["voxel_extents_scale"]
 
@@ -86,6 +92,11 @@ def main(
     console.print(f"[yellow] min_weight_threshold: {min_weight_threshold}")
     console.print(f"[yellow] sdf_var_threshold: {sdf_var_threshold}")
     console.print(f"[yellow] marching_cubes_threshold: {marching_cubes_threshold}")
+    console.print(f"[yellow] dynamic_detection: {dynamic_detection}")
+    console.print(f"[yellow] dynamic_erosion_size: {dynamic_erosion_size}")
+    console.print(f"[yellow] dynamic_dilation_size: {dynamic_dilation_size}")
+    console.print(f"[yellow] dynamic_flood_threshold: {dynamic_flood_threshold}")
+    console.print(f"[yellow] gs_only_dynamic_frames: {gs_only_dynamic_frames}")
 
     console.print(f"[yellow] min depth: {min_depth} [m]")
     console.print(f"[yellow] max depth: {max_depth} [m]")
@@ -120,6 +131,20 @@ def main(
         min_depth=min_depth,
         max_depth=max_depth,
     )
+
+    geo_wrapper.enableDynamicDetection(dynamic_detection)
+    geo_wrapper.setDynamicErosionSize(dynamic_erosion_size)
+    geo_wrapper.setDynamicDilationSize(dynamic_dilation_size)
+    geo_wrapper.setDynamicFloodThreshold(dynamic_flood_threshold)
+    geo_wrapper.setGSOnlyDynamicFrames(gs_only_dynamic_frames)
+
+    # Configure mask saving
+    if save_dynamic_mask:
+        mask_dir = results_dir / "mrhash_mask"
+        mask_dir.mkdir(parents=True, exist_ok=True)
+        geo_wrapper.setSaveDynamicMask(True)
+        geo_wrapper.setMaskOutputPath(str(mask_dir))
+        console.print(f"[yellow] Saving masks to: {mask_dir}")
 
     geo_wrapper.setCamera(
         rgbd_camera.fx_,

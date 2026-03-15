@@ -767,21 +767,24 @@ namespace cupanutils {
       if (!point_cloud_img->inside(row, col))
         return;
 
-      const float& depth = camera->getDepth(point_cloud_img->at<1>(row, col));
+      const float3 surface_point = point_cloud_img->at<1>(row, col);
+      const float depth = camera->getDepth(surface_point);
 
       if (depth == 0.f)
         return; // set to 0 during pc initialization, if empty
 
-      const float t         = getTruncation(depth, sdf_truncation, sdf_truncation_scale);
-      const float min_depth = min(max_integration_distance, depth - t);
-      const float max_depth = min(max_integration_distance, depth + t);
+      const float range = norm3df(surface_point.x, surface_point.y, surface_point.z);
+      const float t         = getTruncation(range, sdf_truncation, sdf_truncation_scale);
+      const float min_range = min(max_integration_distance, range - t);
+      const float max_range = min(max_integration_distance, range + t);
 
-      if (min_depth >= max_depth)
+      if (min_range >= max_range)
         return;
 
       // clang-format off
-    float3 pcam_min = camera->inverseProjection(row, col, min_depth);
-    float3 pcam_max = camera->inverseProjection(row, col, max_depth);
+    const float3 ray_dir = surface_point / range;
+    float3 pcam_min = ray_dir * min_range;
+    float3 pcam_max = ray_dir * max_range;
 
 
     float3 pw_min = camera->camInWorld() * pcam_min;
@@ -1091,6 +1094,60 @@ namespace cupanutils {
 #endif
     }
 
+    // ======================================================================
+    // Dynamic object detection: compute per-pixel residual mask against TSDF
+    // ======================================================================
+    template <typename T>
+    __global__ void computeResidualMaskKernel(const CUDAMatrixf3* point_cloud_img,
+                                              const Camera* camera,
+                                              const float residual_threshold,
+                                              VoxelContainer<T>* container,
+                                              DualMatrix_<bool>* mask,
+                                              DualMatrix_<float>* residual_map) {
+      const uint col = blockIdx.x * blockDim.x + threadIdx.x;
+      const uint row = blockIdx.y * blockDim.y + threadIdx.y;
+      if (row >= point_cloud_img->rows() || col >= point_cloud_img->cols())
+        return;
+
+      const float3 pcam = point_cloud_img->at<1>(row, col);
+      const float depth = camera->getDepth(pcam);
+      if (depth <= 0.f)
+        return;
+
+      // Transform to world coordinates
+      const float3 pw = camera->camInWorld() * pcam;
+
+      // Look up interpolated SDF in existing TSDF model (trilinear interpolation
+      // reduces noise from nearest-neighbor snapping at surface boundaries)
+      float interpolated_sdf = 0.f;
+      bool valid = container->trilinearInterpolation(pw, interpolated_sdf);
+
+      // If interpolation succeeded and residual exceeds threshold, mark as dynamic
+      if (valid) {
+        float residual = interpolated_sdf * interpolated_sdf;
+        if (residual_map != nullptr)
+          residual_map->at<1>(row, col) = fabsf(interpolated_sdf);
+        if (residual > residual_threshold) {
+          mask->at<1>(row, col) = true;
+        }
+      }
+    }
+
+    template <typename T>
+    void VoxelContainer<T, std::enable_if_t<is_voxel_derived<T>::value>>::computeResidualMask(
+      const CUDAMatrixf3& point_cloud_img, const Camera& camera, CUDAMatrixb& mask, CUDAMatrixf* residual_map) {
+      const dim3 threads_per_block(n_threads_cam, n_threads_cam, 1);
+      const dim3 n_blocks_grid((point_cloud_img.cols() + threads_per_block.x - 1) / threads_per_block.x,
+                               (point_cloud_img.rows() + threads_per_block.y - 1) / threads_per_block.y,
+                               1);
+      // Threshold: truncation_distance^2 / 2 (following python_refusion)
+      const float residual_threshold = sdf_truncation_ * sdf_truncation_ / 2.f;
+      DualMatrix_<float>* d_residual_map = (residual_map != nullptr) ? residual_map->deviceInstance() : nullptr;
+      computeResidualMaskKernel<<<n_blocks_grid, threads_per_block>>>(
+        point_cloud_img.deviceInstance(), camera.deviceInstance(), residual_threshold, d_instance_, mask.deviceInstance(), d_residual_map);
+      CUDA_CHECK(cudaDeviceSynchronize());
+    }
+
     template <typename T>
     __global__ void integrateDepthMapKernel(const CUDAMatrixf3* point_cloud_img,
                                             const CUDAMatrixuc3* rgb_img,
@@ -1100,7 +1157,8 @@ namespace cupanutils {
                                             const float max_integration_distance,
                                             const uchar integration_weight_sample,
                                             const uchar integration_weight_max,
-                                            VoxelContainer<T>* container) {
+                                            VoxelContainer<T>* container,
+                                            const DualMatrix_<bool>* dynamic_mask) {
       // we can access this linearly, we have compact representation
       const uint entry_idx   = blockIdx.x * blockDim.x + threadIdx.x;
       const HashEntry& entry = container->d_compactHashTable_[entry_idx];
@@ -1130,15 +1188,25 @@ namespace cupanutils {
       const auto& row = img_point.x;
       const auto& col = img_point.y;
 
+      // Skip dynamic pixels if mask is provided
+      if (dynamic_mask != nullptr && dynamic_mask->at<1>(row, col))
+        return;
+
       // if depth is good
-      const float depth = camera->getDepth(point_cloud_img->at<1>(row, col));
-      if (depth == 0.f || depth > max_integration_distance) // from matrix initialization, emtpy is 0
+      const float3 surface_point = point_cloud_img->at<1>(row, col);
+      const float depth = camera->getDepth(surface_point);
+      if (depth == 0.f) // from matrix initialization, empty is 0
+        return;
+
+      const float range_surface = norm3df(surface_point.x, surface_point.y, surface_point.z);
+      if (range_surface > max_integration_distance)
         return;
 
       const float depth_normalized = camera->normalizeDepth(depth);
 
-      float sdf              = depth - camera->getDepth(pcam);
-      const float truncation = getTruncation(depth, sdf_truncation, sdf_truncation_scale);
+      const float range_voxel = norm3df(pcam.x, pcam.y, pcam.z);
+      float sdf              = range_surface - range_voxel;
+      const float truncation = getTruncation(range_surface, sdf_truncation, sdf_truncation_scale);
 
       if (sdf <= -truncation)
         return;
@@ -1206,7 +1274,30 @@ namespace cupanutils {
                                                                  max_integration_distance_,
                                                                  integration_weight_sample_,
                                                                  integration_weight_max_,
-                                                                 d_instance_);
+                                                                 d_instance_,
+                                                                 nullptr);
+        CUDA_CHECK(cudaDeviceSynchronize());
+      }
+    }
+
+    template <typename T>
+    void VoxelContainer<T, std::enable_if_t<is_voxel_derived<T>::value>>::integrateDepthMapMasked(
+      const CUDAMatrixf3& point_cloud_img, const CUDAMatrixuc3& rgb_img, const Camera& camera, const CUDAMatrixb& mask) {
+      const dim3 threads_per_block(n_threads, n_threads, 1);
+      const dim3 n_blocks((current_occupied_blocks_ + threads_per_block.x - 1) / threads_per_block.x,
+                          (voxel_block_volume_ + threads_per_block.y - 1) / threads_per_block.y,
+                          1);
+      if (current_occupied_blocks_ > 0) {
+        integrateDepthMapKernel<<<n_blocks, threads_per_block>>>(point_cloud_img.deviceInstance(),
+                                                                 rgb_img.deviceInstance(),
+                                                                 camera.deviceInstance(),
+                                                                 sdf_truncation_,
+                                                                 sdf_truncation_scale_,
+                                                                 max_integration_distance_,
+                                                                 integration_weight_sample_,
+                                                                 integration_weight_max_,
+                                                                 d_instance_,
+                                                                 mask.deviceInstance());
         CUDA_CHECK(cudaDeviceSynchronize());
       }
     }
@@ -1979,14 +2070,20 @@ namespace cupanutils {
       const auto& col = img_point.y;
 
       // if depth is good
-      const float depth = camera->getDepth(point_cloud_img->at<1>(row, col));
-      if (depth == 0.f || depth > max_integration_distance) // from matrix initialization, emtpy is 0
+      const float3 surface_point = point_cloud_img->at<1>(row, col);
+      const float depth = camera->getDepth(surface_point);
+      if (depth == 0.f) // from matrix initialization, empty is 0
+        return;
+
+      const float range_surface = norm3df(surface_point.x, surface_point.y, surface_point.z);
+      if (range_surface > max_integration_distance)
         return;
 
       const float depth_normalized = camera->normalizeDepth(depth);
 
-      float sdf              = depth - camera->getDepth(pcam);
-      const float truncation = getTruncation(depth, sdf_truncation, sdf_truncation_scale);
+      const float range_voxel = norm3df(pcam.x, pcam.y, pcam.z);
+      float sdf              = range_surface - range_voxel;
+      const float truncation = getTruncation(range_surface, sdf_truncation, sdf_truncation_scale);
 
       if (sdf <= -truncation)
         return;

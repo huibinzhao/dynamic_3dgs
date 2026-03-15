@@ -11,7 +11,8 @@ namespace cupanutils {
                                        float* scales,
                                        uint* num_valid_qtree_nodes,
                                        const Camera* camera,
-                                       const VoxelContainer<T>* container) {
+                                       const VoxelContainer<T>* container,
+                                       const DualMatrix_<bool>* dynamic_mask) {
       int idx = blockIdx.x * blockDim.x + threadIdx.x;
       if (idx >= num_qtree_nodes[0])
         return;
@@ -28,6 +29,10 @@ namespace cupanutils {
       const int py = static_cast<int>(p2d.y + 0.5f);
 
       if (px < 0 || py < 0 || px >= camera->cols() || py >= camera->rows())
+        return;
+
+      // Skip pixels marked as dynamic by the residual mask
+      if (dynamic_mask != nullptr && dynamic_mask->at<1>(py, px))
         return;
 
       const float depth_value = depth_img->at<1>(py, px);
@@ -59,9 +64,12 @@ namespace cupanutils {
     void GaussianContainer<T, std::enable_if_t<is_voxel_derived<T>::value>>::checkNodes(const Camera& camera,
                                                                                         const VoxelContainer<T>& container,
                                                                                         const CUDAMatrixuc3& rgb_img,
-                                                                                        const CUDAMatrixf& depth_img) {
+                                                                                        const CUDAMatrixf& depth_img,
+                                                                                        const CUDAMatrixb* dynamic_mask) {
       int threads_per_block = 256;
       int num_blocks        = (num_qtree_nodes_ + threads_per_block - 1) / threads_per_block;
+
+      const DualMatrix_<bool>* d_mask = (dynamic_mask != nullptr) ? dynamic_mask->deviceInstance() : nullptr;
 
       processNodesKernel<<<num_blocks, threads_per_block>>>(d_qtree_nodes_,
                                                             rgb_img.deviceInstance(),
@@ -72,7 +80,8 @@ namespace cupanutils {
                                                             d_scales_,
                                                             d_num_valid_qtree_nodes_,
                                                             camera.deviceInstance(),
-                                                            container.d_instance_);
+                                                            container.d_instance_,
+                                                            d_mask);
 
       CUDA_CHECK(cudaDeviceSynchronize());
 
