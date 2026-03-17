@@ -2,6 +2,7 @@
 #include "cuda_matrix.cuh"
 #include "serializer.h"
 #include "surface_normal_estimator/mad_tree.h"
+#include <cstring>
 #include <vector>
 #include <sys/stat.h>
 
@@ -405,6 +406,27 @@ namespace pygeowrapper {
   void GeoWrapper::GSFinalOpt() {
     if (gs_container_)
       gs_container_->optimizeGSFinal();
+  }
+
+  bool GeoWrapper::hasGSRenderedImage() const {
+    return gs_container_ && gs_container_->has_rendered_img_;
+  }
+
+  nb::ndarray<nb::numpy, uint8_t> GeoWrapper::getGSRenderedImage() {
+    if (!gs_container_ || !gs_container_->has_rendered_img_) {
+      rendered_img_buffer_.clear();
+      rendered_img_rows_ = 0;
+      rendered_img_cols_ = 0;
+      return nb::ndarray<nb::numpy, uint8_t>(rendered_img_buffer_.data(), {0, 0, 0});
+    }
+    const cv::Mat& img = gs_container_->last_rendered_img_;
+    rendered_img_rows_ = img.rows;
+    rendered_img_cols_ = img.cols;
+    size_t total = img.rows * img.cols * 3;
+    rendered_img_buffer_.resize(total);
+    std::memcpy(rendered_img_buffer_.data(), img.data, total);
+    size_t shape[3] = {(size_t)img.rows, (size_t)img.cols, 3};
+    return nb::ndarray<nb::numpy, uint8_t>(rendered_img_buffer_.data(), 3, shape);
   }
 
   void GeoWrapper::setRGBImage(nb::ndarray<uint8_t> input_rgb_array) {

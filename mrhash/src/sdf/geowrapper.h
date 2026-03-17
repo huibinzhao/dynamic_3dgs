@@ -71,6 +71,12 @@ namespace pygeowrapper {
     // GS only on frames with dynamic objects
     bool gs_only_dynamic_frames_ = false;
 
+    // GS visualization
+    bool gs_visualize_ = false;
+    std::vector<uint8_t> rendered_img_buffer_;
+    int rendered_img_rows_ = 0;
+    int rendered_img_cols_ = 0;
+
     void refineDynamicMask();
 
   public:
@@ -107,6 +113,10 @@ namespace pygeowrapper {
     std::string getMaskOutputPath() const { return mask_output_path_; }
     void setGSOnlyDynamicFrames(bool enable) { gs_only_dynamic_frames_ = enable; }
     bool getGSOnlyDynamicFrames() const { return gs_only_dynamic_frames_; }
+    void setGSVisualize(bool enable) { gs_visualize_ = enable; }
+    bool getGSVisualize() const { return gs_visualize_; }
+    bool hasGSRenderedImage() const;
+    nb::ndarray<nb::numpy, uint8_t> getGSRenderedImage();
     int getHashNumBuckets() const { return hash_num_buckets_; }
     int getNumSdfBlocks() const { return num_sdf_blocks_; }
     int getHashBucketSize() const { return hash_bucket_size_; }

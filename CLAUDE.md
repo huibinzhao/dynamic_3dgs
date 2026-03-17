@@ -1,9 +1,11 @@
 # CLAUDE.md
 
+用中文回答
+
 ## Build
 
 ```bash
-cd /home/robin/mrhash && rm -rf build && pixi run pip uninstall mrhash -y && pixi run pip install -e . --no-build-isolation
+cd /home/robin/mrhash && pixi run pip uninstall mrhash -y && rm -rf build && pixi run pip install -e . --no-build-isolation 
 ```
 
 ## Run

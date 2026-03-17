@@ -6,6 +6,8 @@
 #include <quad_tree.cuh>
 #include <render_utils.cuh>
 
+#include <opencv2/core.hpp>
+
 namespace cupanutils {
   namespace cugeoutils {
 
@@ -56,6 +58,8 @@ namespace cupanutils {
       float* d_scales_               = nullptr;
       torch::Tensor cur_mask_tensor_;
       std::vector<torch::Tensor> mask_list_;
+      cv::Mat last_rendered_img_;
+      bool has_rendered_img_ = false;
     };
 
     template class GaussianContainer<Voxel>;

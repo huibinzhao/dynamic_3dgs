@@ -134,9 +134,9 @@ namespace cupanutils {
         if (iter == iters - 1) {
           auto rendered_img_tensor = image.detach().permute({1, 2, 0}).contiguous().to(torch::kCPU);
           rendered_img_tensor      = rendered_img_tensor.mul(255).clamp(0, 255).to(torch::kU8);
-          auto cv_rendered_img     = cv::Mat(image.size(1), image.size(2), CV_8UC3, rendered_img_tensor.data_ptr());
-          // cv::imshow("rendered", cv_rendered_img);
-          // cv::waitKey(1);
+          cv::Mat temp(image.size(1), image.size(2), CV_8UC3, rendered_img_tensor.data_ptr());
+          last_rendered_img_ = temp.clone();
+          has_rendered_img_ = true;
         }
       }
 

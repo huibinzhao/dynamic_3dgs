@@ -3,6 +3,7 @@ import sys
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 import typer
 import yaml
@@ -53,6 +54,7 @@ def main(
     dynamic_flood_threshold = data_cf["map"].get("dynamic_flood_threshold", 0.007)
     save_dynamic_mask = data_cf["map"].get("save_dynamic_mask", False)
     gs_only_dynamic_frames = data_cf["map"].get("gs_only_dynamic_frames", False)
+    gs_visualize = data_cf["map"].get("gs_visualize", False)
 
     voxel_extents_scale = data_cf["streamer"]["voxel_extents_scale"]
 
@@ -97,6 +99,7 @@ def main(
     console.print(f"[yellow] dynamic_dilation_size: {dynamic_dilation_size}")
     console.print(f"[yellow] dynamic_flood_threshold: {dynamic_flood_threshold}")
     console.print(f"[yellow] gs_only_dynamic_frames: {gs_only_dynamic_frames}")
+    console.print(f"[yellow] gs_visualize: {gs_visualize}")
 
     console.print(f"[yellow] min depth: {min_depth} [m]")
     console.print(f"[yellow] max depth: {max_depth} [m]")
@@ -137,6 +140,7 @@ def main(
     geo_wrapper.setDynamicDilationSize(dynamic_dilation_size)
     geo_wrapper.setDynamicFloodThreshold(dynamic_flood_threshold)
     geo_wrapper.setGSOnlyDynamicFrames(gs_only_dynamic_frames)
+    geo_wrapper.setGSVisualize(gs_visualize)
 
     # Configure mask saving
     if save_dynamic_mask:
@@ -165,6 +169,20 @@ def main(
         geo_wrapper.setDepthImage(depth_img)
         geo_wrapper.setRGBImage(rgb_img)
         geo_wrapper.compute()
+
+        if gs_visualize and geo_wrapper.hasGSRenderedImage():
+            rendered = np.array(geo_wrapper.getGSRenderedImage())
+            gt_display = rgb_img.astype(np.uint8)
+            rendered_bgr = cv2.cvtColor(rendered, cv2.COLOR_RGB2BGR)
+            gt_bgr = cv2.cvtColor(gt_display, cv2.COLOR_RGB2BGR)
+            combined = np.hstack([gt_bgr, rendered_bgr])
+            cv2.imshow("3DGS Training: GT (left) | Rendered (right)", combined)
+            cv2.waitKey(1)
+
+    if gs_visualize and geo_wrapper.hasGSRenderedImage():
+        console.print("[yellow] Training complete. Press any key on the image window to close.")
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     geo_wrapper.streamAllOut()
     geo_wrapper.extractMesh(f"{results_dir}/mesh_{timestamp}.ply")

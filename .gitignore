@@ -4,3 +4,4 @@ build/
 **/third_party/libtorch/**
 *_profiler.txt
 memory_allocation.txt
+CLAUDE.md
