@@ -146,6 +146,7 @@ def main(
     if save_dynamic_mask:
         mask_dir = results_dir / "mrhash_mask"
         mask_dir.mkdir(parents=True, exist_ok=True)
+        (mask_dir / "raw").mkdir(parents=True, exist_ok=True)
         geo_wrapper.setSaveDynamicMask(True)
         geo_wrapper.setMaskOutputPath(str(mask_dir))
         console.print(f"[yellow] Saving masks to: {mask_dir}")
