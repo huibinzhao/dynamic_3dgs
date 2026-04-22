@@ -5,3 +5,28 @@ build/
 *_profiler.txt
 memory_allocation.txt
 CLAUDE.md
+
+# Compiled python files
+*.pyc
+*.pyo
+*.pyd
+
+# C++ compiled files
+*.o
+*.so
+*.a
+*.dll
+*.exe
+*.out
+*.app
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Python dev
+*.egg-info/
+.eggs/
+dist/
+.pytest_cache/

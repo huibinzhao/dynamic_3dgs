@@ -213,5 +213,36 @@ namespace cupanutils {
       torch::cuda::synchronize();
     }
 
+    template <typename T>
+    void GaussianContainer<T, std::enable_if_t<is_voxel_derived<T>::value>>::renderOnly(Camera& camera) {
+      // Set up the GS camera from the current pose (without adding to keyframe list)
+      Eigen::Matrix4f T_SW     = Eigen::Isometry3f(CUDA2Eig(camera.camInWorld())).inverse().matrix();
+      torch::Tensor W2C_matrix = torch::from_blob(T_SW.data(), {4, 4}, torch::kFloat).clone().to(torch::kCUDA, true);
+      torch::Tensor proj_matrix =
+        gs::getProjectionMatrix(camera.cols(), camera.rows(), camera.fx(), camera.fy(), camera.cx(), camera.cy())
+          .to(torch::kCUDA, true);
+
+      gs::Camera render_cam;
+      render_cam.height           = camera.rows();
+      render_cam.width            = camera.cols();
+      render_cam.T_W2C            = W2C_matrix;
+      render_cam.fov_x            = camera.hfov();
+      render_cam.fov_y            = camera.vfov();
+      render_cam.full_proj_matrix = W2C_matrix.mm(proj_matrix);
+      render_cam.cam_center       = W2C_matrix.inverse()[3].slice(0, 0, 3);
+
+      // Render without gradient computation
+      torch::NoGradGuard no_grad;
+      auto [image, viewspace_point_tensor, visibility_filter, radii] = gs::render(render_cam, gs_model_);
+
+      // Store the rendered image for visualization
+      auto rendered_img_tensor = image.detach().permute({1, 2, 0}).contiguous().to(torch::kCPU);
+      rendered_img_tensor      = rendered_img_tensor.mul(255).clamp(0, 255).to(torch::kU8);
+      cv::Mat temp(image.size(1), image.size(2), CV_8UC3, rendered_img_tensor.data_ptr());
+      last_rendered_img_ = temp.clone();
+      has_rendered_img_ = true;
+      torch::cuda::synchronize();
+    }
+
   } // namespace cugeoutils
 } // namespace cupanutils

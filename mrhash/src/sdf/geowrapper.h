@@ -68,6 +68,9 @@ namespace pygeowrapper {
     std::string mask_output_path_ = "";
     int frame_count_ = 0;
 
+    // External dynamic mask (e.g., from DROID-W uncertainty)
+    bool has_external_mask_ = false;
+
     // GS only on frames with dynamic objects
     bool gs_only_dynamic_frames_ = false;
 
@@ -113,10 +116,13 @@ namespace pygeowrapper {
     std::string getMaskOutputPath() const { return mask_output_path_; }
     void setGSOnlyDynamicFrames(bool enable) { gs_only_dynamic_frames_ = enable; }
     bool getGSOnlyDynamicFrames() const { return gs_only_dynamic_frames_; }
+    void setExternalDynamicMask(nb::ndarray<uint8_t> mask_array);
+    void clearExternalDynamicMask() { has_external_mask_ = false; }
     void setGSVisualize(bool enable) { gs_visualize_ = enable; }
     bool getGSVisualize() const { return gs_visualize_; }
     bool hasGSRenderedImage() const;
     nb::ndarray<nb::numpy, uint8_t> getGSRenderedImage();
+    void GSRenderOnly();
     int getHashNumBuckets() const { return hash_num_buckets_; }
     int getNumSdfBlocks() const { return num_sdf_blocks_; }
     int getHashBucketSize() const { return hash_bucket_size_; }

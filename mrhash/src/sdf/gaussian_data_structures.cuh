@@ -37,6 +37,7 @@ namespace cupanutils {
                              cupanutils::cugeoutils::CUDAMatrixb* dynamic_mask = nullptr);
       void optimizeGS();
       void optimizeGSFinal();
+      void renderOnly(Camera& camera);
       __host__ void checkNodes(const Camera& camera,
                                const VoxelContainer<T>& container,
                                const CUDAMatrixuc3& rgb_img,

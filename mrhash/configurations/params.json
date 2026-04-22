@@ -9,7 +9,7 @@
   "qtree_thresh": 0.1,
   "qtree_min_pixel_size": 1,
   "kf_thresh": 50,
-  "kf_iters": 15,
+  "kf_iters": 30,
   "non_kf_iters": 3,
   "random_kf_num": 2,
   "global_iters": 10,

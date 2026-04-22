@@ -145,7 +145,25 @@ namespace pygeowrapper {
     // Note: First frame (num_integrated_frames_ == 0) skips dynamic detection and integrates directly into TSDF
     // Subsequent frames perform dynamic object detection and use mask filtering during integration
     bool use_dynamic_mask = false;
-    if (dynamic_detection_enabled_ && depth_img_.size() && rgb_img_.size() && voxelhasher_->num_integrated_frames_ > 0) {
+
+    if (has_external_mask_ && depth_img_.size() && rgb_img_.size()) {
+      // Use the externally provided mask (e.g., from DROID-W uncertainty)
+      dynamic_mask_.toDevice();
+      use_dynamic_mask = true;
+      has_external_mask_ = false;  // consumed
+
+      // Save mask if enabled
+      if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+        dynamic_mask_.toHost();
+        cv::Mat mask_img(dynamic_mask_.rows(), dynamic_mask_.cols(), CV_8UC1);
+        for (int r = 0; r < dynamic_mask_.rows(); ++r)
+          for (int c = 0; c < dynamic_mask_.cols(); ++c)
+            mask_img.at<uchar>(r, c) = dynamic_mask_.at(r, c) ? 255 : 0;
+        char filename[256];
+        sprintf(filename, "%s/mask_%06d.png", mask_output_path_.c_str(), frame_count_);
+        cv::imwrite(filename, mask_img);
+      }
+    } else if (dynamic_detection_enabled_ && depth_img_.size() && rgb_img_.size() && voxelhasher_->num_integrated_frames_ > 0) {
       // Initialize mask to all-false
       dynamic_mask_.resize(depth_img_.rows(), depth_img_.cols());
       dynamic_mask_.fill(false);
@@ -429,6 +447,12 @@ namespace pygeowrapper {
     return nb::ndarray<nb::numpy, uint8_t>(rendered_img_buffer_.data(), 3, shape);
   }
 
+  void GeoWrapper::GSRenderOnly() {
+    if (gs_container_ && camera_) {
+      gs_container_->renderOnly(*camera_);
+    }
+  }
+
   void GeoWrapper::setRGBImage(nb::ndarray<uint8_t> input_rgb_array) {
     // check the dimensions of the input array
     if (input_rgb_array.ndim() != 3) {
@@ -526,6 +550,25 @@ namespace pygeowrapper {
         depth_img_.at(r, c) = row_ptr[c];
       }
     }
+  }
+
+  void GeoWrapper::setExternalDynamicMask(nb::ndarray<uint8_t> mask_array) {
+    if (mask_array.ndim() != 2) {
+      throw std::runtime_error("GeoWrapper::setExternalDynamicMask|input should be a 2D numpy array");
+    }
+
+    const size_t rows = mask_array.shape(0);
+    const size_t cols = mask_array.shape(1);
+    uint8_t* ptr = mask_array.data();
+
+    dynamic_mask_.resize(rows, cols);
+    for (size_t r = 0; r < rows; ++r) {
+      for (size_t c = 0; c < cols; ++c) {
+        // Non-zero = dynamic (should be masked out)
+        dynamic_mask_.at(r, c) = (ptr[r * cols + c] != 0);
+      }
+    }
+    has_external_mask_ = true;
   }
 
   void GeoWrapper::setPointCloud(nb::ndarray<float> input_point_cloud_array, const bool compute_normals) {
