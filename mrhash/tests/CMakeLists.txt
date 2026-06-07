@@ -29,13 +29,13 @@ target_link_libraries(test_marching_cubes GTest::gtest_main ${GEOM_LIB_NAME})
 target_include_directories(test_marching_cubes PRIVATE ${PROJECT_SOURCE_DIR}/src/)
 
 include(GoogleTest)
-gtest_discover_tests(test_algebra_operations)
-gtest_discover_tests(test_cuda_matrix)
-gtest_discover_tests(test_projections)
-gtest_discover_tests(test_hash_utils)
-gtest_discover_tests(test_streamer)
-gtest_discover_tests(test_grid_serializer)
-gtest_discover_tests(test_marching_cubes)
+gtest_discover_tests(test_algebra_operations DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(test_cuda_matrix DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(test_projections DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(test_hash_utils DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(test_streamer DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(test_grid_serializer DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(test_marching_cubes DISCOVERY_MODE PRE_TEST)
 
 add_custom_target(run_tests
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure

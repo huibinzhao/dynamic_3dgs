@@ -78,6 +78,9 @@ class TUMUnifiedReader:
         """
         rgb_file = data_dir / "rgb.txt"
         depth_file = data_dir / "depth.txt"
+        association_file = data_dir / "associated.txt"
+        if not association_file.exists():
+            association_file = data_dir / "associations.txt"
 
         pose_file = data_dir / "groundtruth.txt"
         if not pose_file.exists():
@@ -100,32 +103,82 @@ class TUMUnifiedReader:
         depth_list = read_file_list(depth_file)
         pose_list = read_file_list(pose_file) if load_gt_pose else None
 
-        # Association by nearest timestamps
+        def load_associations(filename):
+            associated = []
+            with open(filename, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split()
+                    if len(parts) < 4:
+                        continue
+
+                    first_ts, first_path = float(parts[0]), parts[1]
+                    second_ts, second_path = float(parts[2]), parts[3]
+                    first_is_depth = "depth" in first_path.lower()
+                    second_is_depth = "depth" in second_path.lower()
+                    first_is_rgb = "rgb" in first_path.lower() or "color" in first_path.lower()
+                    second_is_rgb = "rgb" in second_path.lower() or "color" in second_path.lower()
+
+                    if first_is_depth and second_is_rgb:
+                        depth_ts, depth_path = first_ts, first_path
+                        rgb_ts, rgb_path = second_ts, second_path
+                    elif first_is_rgb and second_is_depth:
+                        rgb_ts, rgb_path = first_ts, first_path
+                        depth_ts, depth_path = second_ts, second_path
+                    else:
+                        rgb_ts, rgb_path = first_ts, first_path
+                        depth_ts, depth_path = second_ts, second_path
+
+                    associated.append({
+                        "rgb": rgb_path,
+                        "depth": depth_path,
+                        "timestamp": depth_ts,
+                        "rgb_timestamp": rgb_ts,
+                        "depth_timestamp": depth_ts,
+                    })
+            return associated
+
+        # Prefer precomputed timestamp associations when the dataset provides them.
+        if association_file.exists():
+            matches = load_associations(association_file)
+        else:
+            matches = []
+
+        # Fallback: associate RGB and depth by nearest timestamps.
         depth_timestamps = np.array([item[0] for item in depth_list])
         pose_timestamps = (
             np.array([item[0] for item in pose_list]) if pose_list else None
         )
 
-        matches = []
-        for rgb_ts, rgb_data in rgb_list:
-            # Find nearest depth
-            d_idx = np.argmin(np.abs(depth_timestamps - rgb_ts))
-            if np.abs(depth_timestamps[d_idx] - rgb_ts) > 0.02:
-                continue  # 20ms threshold
+        if not matches:
+            for rgb_ts, rgb_data in rgb_list:
+                d_idx = np.argmin(np.abs(depth_timestamps - rgb_ts))
+                depth_ts = depth_timestamps[d_idx]
+                if np.abs(depth_ts - rgb_ts) > 0.02:
+                    continue
 
-            match = {
-                "rgb": rgb_data[0],
-                "depth": depth_list[d_idx][1][0],
-                "timestamp": rgb_ts,
-            }
+                matches.append({
+                    "rgb": rgb_data[0],
+                    "depth": depth_list[d_idx][1][0],
+                    "timestamp": depth_ts,
+                    "rgb_timestamp": rgb_ts,
+                    "depth_timestamp": depth_ts,
+                })
 
-            if load_gt_pose and pose_timestamps is not None:
-                p_idx = np.argmin(np.abs(pose_timestamps - rgb_ts))
-                if np.abs(pose_timestamps[p_idx] - rgb_ts) > 0.02:
+        if load_gt_pose and pose_timestamps is not None:
+            associated_matches = []
+            for match in matches:
+                p_idx = np.argmin(np.abs(pose_timestamps - match["timestamp"]))
+                if np.abs(pose_timestamps[p_idx] - match["timestamp"]) > 0.02:
                     continue
                 match["pose"] = pose_list[p_idx][1]
+                associated_matches.append(match)
+            matches = associated_matches
 
-            matches.append(match)
+        if not matches:
+            raise RuntimeError(f"No associated RGB-D frames found in {data_dir}")
 
         rgb_paths = [data_dir / m["rgb"] for m in matches]
         depth_paths = [data_dir / m["depth"] for m in matches]
@@ -229,6 +282,10 @@ class TUMUnifiedReader:
     def get_depth_paths(self) -> List[str]:
         """Get list of depth image paths as strings."""
         return [str(p) for p in self.depth_paths]
+
+    def get_timestamps(self) -> List[float]:
+        """Get associated frame timestamps."""
+        return list(self.timestamps)
 
     def get_gt_poses_4x4(self) -> Optional[List[np.ndarray]]:
         """

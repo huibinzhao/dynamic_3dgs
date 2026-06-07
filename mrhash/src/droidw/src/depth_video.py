@@ -98,6 +98,12 @@ class DepthVideo:
             # set bias to 0
             self.affine_weights[:, -1].zero_()
             self.affine_weights = self.affine_weights.squeeze(0).share_memory_()
+            self.affine_weights_history = torch.zeros(
+                buffer, n_features + 1, device=self.device, dtype=torch.float
+            ).share_memory_()
+            self.affine_weights_history_valid = torch.zeros(
+                buffer, device=self.device, dtype=torch.bool
+            ).share_memory_()
             self.enable_affine_transform = cfg['tracking']['uncertainty_params']['enable_affine_transform']
             self.temp_y_cdot = torch.zeros(buffer, ht//self.down_scale, wd//self.down_scale, device=self.device, dtype=torch.float).share_memory_()
         else:
@@ -198,6 +204,17 @@ class DepthVideo:
     def append(self, *item):
         with self.get_lock():
             self.__item_setter(self.counter.value, item)
+
+    def snapshot_affine_weights(self, index=None):
+        if not self.uncertainty_aware or not hasattr(self, "affine_weights_history"):
+            return
+        if index is None:
+            index = self.counter.value - 1
+        index = int(index)
+        if index < 0 or index >= self.affine_weights_history.shape[0]:
+            return
+        self.affine_weights_history[index] = self.affine_weights.detach()
+        self.affine_weights_history_valid[index] = True
 
     def init_w_mono_disp(self, start_idx, end_idx):
         with self.get_lock():
@@ -810,15 +827,26 @@ class DepthVideo:
         droid_disps = self.disps[:self.counter.value].cpu().numpy()
         intrinsics = self.intrinsics[:self.counter.value].cpu().numpy()
         uncertainties = self.uncertainties[:self.counter.value].cpu().numpy()
-        np.savez(path,
+        video_data = dict(
             timestamps=timestamps,
             images=images,
-            poses=poses,tum_poses=tum_poses,
+            poses=poses,
+            tum_poses=tum_poses,
             mono_disps=mono_disps,
             droid_disps_up=droid_disps_up,
             droid_disps=droid_disps,
             intrinsics=intrinsics,
-            uncertainties=uncertainties)
+            uncertainties=uncertainties,
+        )
+        if self.uncertainty_aware and hasattr(self, "affine_weights_history"):
+            video_data["affine_weights"] = self.affine_weights.detach().cpu().numpy()
+            video_data["affine_weights_history"] = (
+                self.affine_weights_history[:self.counter.value].cpu().numpy()
+            )
+            video_data["affine_weights_history_valid"] = (
+                self.affine_weights_history_valid[:self.counter.value].cpu().numpy()
+            )
+        np.savez(path, **video_data)
         self.printer.print(f"Saved final depth video: {path}",FontColor.INFO)
 
     def save_poses(self,path:str):

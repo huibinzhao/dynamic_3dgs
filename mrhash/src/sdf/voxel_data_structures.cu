@@ -1103,7 +1103,8 @@ namespace cupanutils {
                                               const float residual_threshold,
                                               VoxelContainer<T>* container,
                                               DualMatrix_<bool>* mask,
-                                              DualMatrix_<float>* residual_map) {
+                                              DualMatrix_<float>* residual_map,
+                                              DualMatrix_<float>* valid_map) {
       const uint col = blockIdx.x * blockDim.x + threadIdx.x;
       const uint row = blockIdx.y * blockDim.y + threadIdx.y;
       if (row >= point_cloud_img->rows() || col >= point_cloud_img->cols())
@@ -1121,6 +1122,8 @@ namespace cupanutils {
       // reduces noise from nearest-neighbor snapping at surface boundaries)
       float interpolated_sdf = 0.f;
       bool valid = container->trilinearInterpolation(pw, interpolated_sdf);
+      if (valid_map != nullptr)
+        valid_map->at<1>(row, col) = valid ? 1.f : 0.f;
 
       // If interpolation succeeded and residual exceeds threshold, mark as dynamic
       if (valid) {
@@ -1135,7 +1138,7 @@ namespace cupanutils {
 
     template <typename T>
     void VoxelContainer<T, std::enable_if_t<is_voxel_derived<T>::value>>::computeResidualMask(
-      const CUDAMatrixf3& point_cloud_img, const Camera& camera, CUDAMatrixb& mask, CUDAMatrixf* residual_map) {
+      const CUDAMatrixf3& point_cloud_img, const Camera& camera, CUDAMatrixb& mask, CUDAMatrixf* residual_map, CUDAMatrixf* valid_map) {
       const dim3 threads_per_block(n_threads_cam, n_threads_cam, 1);
       const dim3 n_blocks_grid((point_cloud_img.cols() + threads_per_block.x - 1) / threads_per_block.x,
                                (point_cloud_img.rows() + threads_per_block.y - 1) / threads_per_block.y,
@@ -1143,8 +1146,9 @@ namespace cupanutils {
       // Threshold: truncation_distance^2 / 2 (following python_refusion)
       const float residual_threshold = sdf_truncation_ * sdf_truncation_ / 2.f;
       DualMatrix_<float>* d_residual_map = (residual_map != nullptr) ? residual_map->deviceInstance() : nullptr;
+      DualMatrix_<float>* d_valid_map = (valid_map != nullptr) ? valid_map->deviceInstance() : nullptr;
       computeResidualMaskKernel<<<n_blocks_grid, threads_per_block>>>(
-        point_cloud_img.deviceInstance(), camera.deviceInstance(), residual_threshold, d_instance_, mask.deviceInstance(), d_residual_map);
+        point_cloud_img.deviceInstance(), camera.deviceInstance(), residual_threshold, d_instance_, mask.deviceInstance(), d_residual_map, d_valid_map);
       CUDA_CHECK(cudaDeviceSynchronize());
     }
 

@@ -9,6 +9,43 @@
 #include <opencv2/imgproc.hpp>
 
 namespace pygeowrapper {
+  namespace {
+    enum class TsdfEvidence { Unknown, Static, Dynamic };
+
+    inline float clamp01(const float value) {
+      return fminf(fmaxf(value, 0.f), 1.f);
+    }
+
+    inline TsdfEvidence classifyTsdfEvidence(const bool valid, const bool dynamic) {
+      if (!valid)
+        return TsdfEvidence::Unknown;
+      return dynamic ? TsdfEvidence::Dynamic : TsdfEvidence::Static;
+    }
+
+    inline float fuseDynamicProbability(const float p_uncer,
+                                        const TsdfEvidence tsdf_evidence,
+                                        const float uncertainty_weight,
+                                        const float tsdf_weight) {
+      float weighted_probability = uncertainty_weight * p_uncer;
+      float active_weight        = uncertainty_weight;
+
+      if (tsdf_evidence != TsdfEvidence::Unknown) {
+        const float p_tsdf = (tsdf_evidence == TsdfEvidence::Dynamic) ? 1.f : 0.f;
+        weighted_probability += tsdf_weight * p_tsdf;
+        active_weight += tsdf_weight;
+      }
+
+      return active_weight > 0.f ? weighted_probability / active_weight : 0.f;
+    }
+
+    inline uchar tsdfEvidenceDebugValue(const TsdfEvidence tsdf_evidence) {
+      if (tsdf_evidence == TsdfEvidence::Dynamic)
+        return 255;
+      if (tsdf_evidence == TsdfEvidence::Static)
+        return 0;
+      return 127;
+    }
+  } // namespace
 
   GeoWrapper::GeoWrapper(float sdf_truncation,
                          float sdf_truncation_scale,
@@ -120,6 +157,8 @@ namespace pygeowrapper {
   }
 
   void GeoWrapper::compute() {
+    last_tsdf_residual_img_.release();
+
     // set absolute pose
     camera_->setCamInWorld(curr_pose_.matrix());
 
@@ -146,7 +185,116 @@ namespace pygeowrapper {
     // Subsequent frames perform dynamic object detection and use mask filtering during integration
     bool use_dynamic_mask = false;
 
-    if (has_external_mask_ && depth_img_.size() && rgb_img_.size()) {
+    if (dynamic_fusion_enabled_ && has_external_dynamic_probability_ && depth_img_.size() && rgb_img_.size()) {
+      cupanutils::cugeoutils::CUDAMatrixb tsdf_mask;
+      tsdf_mask.resize(depth_img_.rows(), depth_img_.cols());
+      tsdf_mask.fill(false);
+
+      cupanutils::cugeoutils::CUDAMatrixf valid_map;
+      valid_map.resize(depth_img_.rows(), depth_img_.cols());
+      valid_map.fill(0.f);
+
+      cupanutils::cugeoutils::CUDAMatrixf residual_map;
+      cupanutils::cugeoutils::CUDAMatrixf* residual_map_ptr = nullptr;
+      if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+        residual_map.resize(depth_img_.rows(), depth_img_.cols());
+        residual_map.fill(0.f);
+        residual_map_ptr = &residual_map;
+      }
+
+      cv::Mat raw_tsdf_debug;
+      cv::Mat valid_tsdf_debug;
+      cv::Mat residual_tsdf_debug;
+
+      if (voxelhasher_->num_integrated_frames_ > 0) {
+        voxelhasher_->computeResidualMask(point_cloud_img, *camera_, tsdf_mask, residual_map_ptr, &valid_map);
+
+        if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+          tsdf_mask.toHost();
+          valid_map.toHost();
+          residual_map.toHost();
+          raw_tsdf_debug = cv::Mat(tsdf_mask.rows(), tsdf_mask.cols(), CV_8UC1);
+          valid_tsdf_debug = cv::Mat(valid_map.rows(), valid_map.cols(), CV_8UC1);
+          cv::Mat residual_gray(residual_map.rows(), residual_map.cols(), CV_8UC1);
+          for (int r = 0; r < tsdf_mask.rows(); ++r) {
+            for (int c = 0; c < tsdf_mask.cols(); ++c) {
+              raw_tsdf_debug.at<uchar>(r, c) = tsdf_mask.at(r, c) ? 255 : 0;
+              valid_tsdf_debug.at<uchar>(r, c) = valid_map.at(r, c) > 0.f ? 255 : 0;
+              float val = residual_map.at(r, c) / sdf_truncation_ * 255.f;
+              residual_gray.at<uchar>(r, c) = static_cast<uchar>(fminf(val, 255.f));
+            }
+          }
+          cv::applyColorMap(residual_gray, residual_tsdf_debug, cv::COLORMAP_JET);
+          last_tsdf_residual_img_ = residual_tsdf_debug.clone();
+        }
+
+        refineMask(tsdf_mask);
+      }
+
+      tsdf_mask.toHost();
+      valid_map.toHost();
+      dynamic_mask_.resize(depth_img_.rows(), depth_img_.cols());
+
+      cv::Mat droidw_debug;
+      cv::Mat tsdf_debug;
+      cv::Mat fused_debug;
+      if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+        droidw_debug = cv::Mat(dynamic_mask_.rows(), dynamic_mask_.cols(), CV_8UC1);
+        tsdf_debug = cv::Mat(dynamic_mask_.rows(), dynamic_mask_.cols(), CV_8UC1);
+        fused_debug = cv::Mat(dynamic_mask_.rows(), dynamic_mask_.cols(), CV_8UC1);
+      }
+
+      for (int r = 0; r < dynamic_mask_.rows(); ++r) {
+        for (int c = 0; c < dynamic_mask_.cols(); ++c) {
+          const float p_uncer = clamp01(external_dynamic_probability_.at(r, c));
+          const TsdfEvidence p_tsdf =
+            classifyTsdfEvidence(valid_map.at(r, c) > 0.f, tsdf_mask.at(r, c));
+          const float p_dyn = fuseDynamicProbability(p_uncer,
+                                                     p_tsdf,
+                                                     fused_uncertainty_weight_,
+                                                     fused_tsdf_weight_);
+          dynamic_mask_.at(r, c) = p_dyn > fused_dynamic_threshold_;
+
+          if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+            droidw_debug.at<uchar>(r, c) = static_cast<uchar>(fminf(p_uncer * 255.f, 255.f));
+            tsdf_debug.at<uchar>(r, c) = tsdfEvidenceDebugValue(p_tsdf);
+            fused_debug.at<uchar>(r, c) = dynamic_mask_.at(r, c) ? 255 : 0;
+          }
+        }
+      }
+
+      dynamic_mask_.toDevice();
+      use_dynamic_mask = true;
+      has_external_dynamic_probability_ = false;
+
+      if (save_dynamic_mask_ && !mask_output_path_.empty()) {
+        char droidw_filename[256];
+        char tsdf_filename[256];
+        char fused_filename[256];
+        snprintf(droidw_filename, sizeof(droidw_filename), "%s/mask_droidw_%06d.png", mask_output_path_.c_str(), frame_count_);
+        snprintf(tsdf_filename, sizeof(tsdf_filename), "%s/mask_tsdf_%06d.png", mask_output_path_.c_str(), frame_count_);
+        snprintf(fused_filename, sizeof(fused_filename), "%s/mask_fused_%06d.png", mask_output_path_.c_str(), frame_count_);
+        cv::imwrite(droidw_filename, droidw_debug);
+        cv::imwrite(tsdf_filename, tsdf_debug);
+        cv::imwrite(fused_filename, fused_debug);
+
+        if (!raw_tsdf_debug.empty()) {
+          char raw_tsdf_filename[256];
+          snprintf(raw_tsdf_filename, sizeof(raw_tsdf_filename), "%s/raw/mask_tsdf_%06d.png", mask_output_path_.c_str(), frame_count_);
+          cv::imwrite(raw_tsdf_filename, raw_tsdf_debug);
+        }
+        if (!valid_tsdf_debug.empty()) {
+          char valid_tsdf_filename[256];
+          snprintf(valid_tsdf_filename, sizeof(valid_tsdf_filename), "%s/raw/valid_tsdf_%06d.png", mask_output_path_.c_str(), frame_count_);
+          cv::imwrite(valid_tsdf_filename, valid_tsdf_debug);
+        }
+        if (!residual_tsdf_debug.empty()) {
+          char residual_tsdf_filename[256];
+          snprintf(residual_tsdf_filename, sizeof(residual_tsdf_filename), "%s/raw/residual_%06d.png", mask_output_path_.c_str(), frame_count_);
+          cv::imwrite(residual_tsdf_filename, residual_tsdf_debug);
+        }
+      }
+    } else if (has_external_mask_ && depth_img_.size() && rgb_img_.size()) {
       // Use the externally provided mask (e.g., from DROID-W uncertainty)
       dynamic_mask_.toDevice();
       use_dynamic_mask = true;
@@ -170,13 +318,18 @@ namespace pygeowrapper {
 
       // Compute per-pixel residual against existing TSDF model
       cupanutils::cugeoutils::CUDAMatrixf residual_map;
+      cupanutils::cugeoutils::CUDAMatrixf valid_map;
       cupanutils::cugeoutils::CUDAMatrixf* residual_map_ptr = nullptr;
+      cupanutils::cugeoutils::CUDAMatrixf* valid_map_ptr = nullptr;
       if (save_dynamic_mask_ && !mask_output_path_.empty()) {
         residual_map.resize(depth_img_.rows(), depth_img_.cols());
         residual_map.fill(0.f);
+        valid_map.resize(depth_img_.rows(), depth_img_.cols());
+        valid_map.fill(0.f);
         residual_map_ptr = &residual_map;
+        valid_map_ptr = &valid_map;
       }
-      voxelhasher_->computeResidualMask(point_cloud_img, *camera_, dynamic_mask_, residual_map_ptr);
+      voxelhasher_->computeResidualMask(point_cloud_img, *camera_, dynamic_mask_, residual_map_ptr, valid_map_ptr);
 
       // Save raw mask and residual heatmap before post-processing
       if (save_dynamic_mask_ && !mask_output_path_.empty()) {
@@ -191,17 +344,24 @@ namespace pygeowrapper {
 
         // Save residual heatmap: |sdf| scaled to [0, 255], max at truncation
         residual_map.toHost();
+        valid_map.toHost();
         cv::Mat heatmap(residual_map.rows(), residual_map.cols(), CV_8UC1);
+        cv::Mat valid_img(valid_map.rows(), valid_map.cols(), CV_8UC1);
         for (int r = 0; r < residual_map.rows(); ++r)
           for (int c = 0; c < residual_map.cols(); ++c) {
             float val = residual_map.at(r, c) / sdf_truncation_ * 255.f;
             heatmap.at<uchar>(r, c) = static_cast<uchar>(fminf(val, 255.f));
+            valid_img.at<uchar>(r, c) = valid_map.at(r, c) > 0.f ? 255 : 0;
           }
         cv::Mat color_heatmap;
         cv::applyColorMap(heatmap, color_heatmap, cv::COLORMAP_JET);
+        last_tsdf_residual_img_ = color_heatmap.clone();
         char heatmap_filename[256];
         snprintf(heatmap_filename, sizeof(heatmap_filename), "%s/raw/residual_%06d.png", mask_output_path_.c_str(), frame_count_);
         cv::imwrite(heatmap_filename, color_heatmap);
+        char valid_filename[256];
+        snprintf(valid_filename, sizeof(valid_filename), "%s/raw/valid_%06d.png", mask_output_path_.c_str(), frame_count_);
+        cv::imwrite(valid_filename, valid_img);
       }
 
       // Refine mask on CPU: erosion → flood fill → dilation
@@ -258,18 +418,18 @@ namespace pygeowrapper {
       voxelhasher_->integrate(point_cloud_, eigenvectors_, weights_, *camera_, n_frames_invalidate_voxels_);
   }
 
-  void GeoWrapper::refineDynamicMask() {
+  void GeoWrapper::refineMask(cupanutils::cugeoutils::CUDAMatrixb& mask_to_refine) {
     // Transfer mask from GPU to CPU
-    dynamic_mask_.toHost();
+    mask_to_refine.toHost();
 
-    const int rows = dynamic_mask_.rows();
-    const int cols = dynamic_mask_.cols();
+    const int rows = mask_to_refine.rows();
+    const int cols = mask_to_refine.cols();
 
     // Convert CUDAMatrixb to cv::Mat (CV_8UC1)
     cv::Mat mask(rows, cols, CV_8UC1);
     for (int r = 0; r < rows; ++r) {
       for (int c = 0; c < cols; ++c) {
-        mask.at<uchar>(r, c) = dynamic_mask_.at(r, c) ? 255 : 0;
+        mask.at<uchar>(r, c) = mask_to_refine.at(r, c) ? 255 : 0;
       }
     }
 
@@ -322,12 +482,16 @@ namespace pygeowrapper {
     // Convert back to CUDAMatrixb
     for (int r = 0; r < rows; ++r) {
       for (int c = 0; c < cols; ++c) {
-        dynamic_mask_.at(r, c) = mask.at<uchar>(r, c) > 0;
+        mask_to_refine.at(r, c) = mask.at<uchar>(r, c) > 0;
       }
     }
 
     // Transfer refined mask back to GPU
-    dynamic_mask_.toDevice();
+    mask_to_refine.toDevice();
+  }
+
+  void GeoWrapper::refineDynamicMask() {
+    refineMask(dynamic_mask_);
   }
 
   void GeoWrapper::extractMesh(const std::string& filename) {
@@ -447,8 +611,27 @@ namespace pygeowrapper {
     return nb::ndarray<nb::numpy, uint8_t>(rendered_img_buffer_.data(), 3, shape);
   }
 
+  bool GeoWrapper::hasTSDFResidualImage() const {
+    return !last_tsdf_residual_img_.empty();
+  }
+
+  nb::ndarray<nb::numpy, uint8_t> GeoWrapper::getTSDFResidualImage() {
+    if (last_tsdf_residual_img_.empty()) {
+      tsdf_residual_img_buffer_.clear();
+      return nb::ndarray<nb::numpy, uint8_t>(tsdf_residual_img_buffer_.data(), {0, 0, 0});
+    }
+
+    const cv::Mat& img = last_tsdf_residual_img_;
+    size_t total = img.rows * img.cols * 3;
+    tsdf_residual_img_buffer_.resize(total);
+    std::memcpy(tsdf_residual_img_buffer_.data(), img.data, total);
+    size_t shape[3] = {(size_t)img.rows, (size_t)img.cols, 3};
+    return nb::ndarray<nb::numpy, uint8_t>(tsdf_residual_img_buffer_.data(), 3, shape);
+  }
+
   void GeoWrapper::GSRenderOnly() {
     if (gs_container_ && camera_) {
+      camera_->setCamInWorld(curr_pose_.matrix());
       gs_container_->renderOnly(*camera_);
     }
   }
@@ -569,6 +752,24 @@ namespace pygeowrapper {
       }
     }
     has_external_mask_ = true;
+  }
+
+  void GeoWrapper::setExternalDynamicProbability(nb::ndarray<float> probability_array) {
+    if (probability_array.ndim() != 2) {
+      throw std::runtime_error("GeoWrapper::setExternalDynamicProbability|input should be a 2D numpy array");
+    }
+
+    const size_t rows = probability_array.shape(0);
+    const size_t cols = probability_array.shape(1);
+    float* ptr = probability_array.data();
+
+    external_dynamic_probability_.resize(rows, cols);
+    for (size_t r = 0; r < rows; ++r) {
+      for (size_t c = 0; c < cols; ++c) {
+        external_dynamic_probability_.at(r, c) = ptr[r * cols + c];
+      }
+    }
+    has_external_dynamic_probability_ = true;
   }
 
   void GeoWrapper::setPointCloud(nb::ndarray<float> input_point_cloud_array, const bool compute_normals) {

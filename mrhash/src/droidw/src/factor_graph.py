@@ -212,7 +212,12 @@ class FactorGraph:
 
             if self.video.uncertainty_aware:
                 self.video.dino_feats[ix] = self.video.dino_feats[ix+1]
+                self.video.dino_feats_resize[ix] = self.video.dino_feats_resize[ix+1]
                 self.video.uncertainties[ix] = self.video.uncertainties[ix+1]
+                self.video.temp_y_cdot[ix] = self.video.temp_y_cdot[ix+1]
+                if hasattr(self.video, "affine_weights_history"):
+                    self.video.affine_weights_history[ix] = self.video.affine_weights_history[ix+1]
+                    self.video.affine_weights_history_valid[ix] = self.video.affine_weights_history_valid[ix+1]
 
         m = (self.ii_inac == ix) | (self.jj_inac == ix)
         self.ii_inac[self.ii_inac >= ix] -= 1       # kfs after ix: index - 1

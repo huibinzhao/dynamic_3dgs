@@ -33,6 +33,123 @@ from torch.utils.tensorboard import SummaryWriter
 from lietorch import SE3
 
 
+def _resolve_video_buffer_index(video, frame_idx):
+    """Return the best DROID-W keyframe buffer index for a dataset frame."""
+    kf_num = video.counter.value
+    if kf_num == 0:
+        return None
+
+    kf_timestamps = video.timestamp[:kf_num].cpu().int().numpy()
+    kf_match = np.where(kf_timestamps == frame_idx)[0]
+    if len(kf_match) > 0:
+        return int(kf_match[0])
+
+    diffs = kf_timestamps - frame_idx
+    past = diffs[diffs <= 0]
+    if len(past) > 0:
+        return int(np.where(diffs == past.max())[0][0])
+    return int(np.argmin(np.abs(diffs)))
+
+
+def _get_affine_weights_for_source(video, affine_source_frame_idx=None):
+    """Return affine weights captured at a source keyframe, falling back to current weights."""
+    if not hasattr(video, "affine_weights"):
+        return None, None
+
+    source_buf_idx = None
+    if affine_source_frame_idx is not None:
+        source_buf_idx = _resolve_video_buffer_index(video, affine_source_frame_idx)
+
+    if (
+        source_buf_idx is not None
+        and hasattr(video, "affine_weights_history")
+        and hasattr(video, "affine_weights_history_valid")
+        and bool(video.affine_weights_history_valid[source_buf_idx].detach().cpu().item())
+    ):
+        return video.affine_weights_history[source_buf_idx].detach(), source_buf_idx
+
+    return video.affine_weights.detach(), source_buf_idx
+
+
+def _compute_uncertainty_with_affine(video, target_buf_idx, affine_source_frame_idx=None):
+    """Compute target-frame uncertainty using affine weights from another keyframe."""
+    source_buf_idx = None
+    if (
+        affine_source_frame_idx is not None
+        and getattr(video, "uncertainty_aware", False)
+        and getattr(video, "enable_affine_transform", False)
+        and getattr(video, "dino_feats_resize", None) is not None
+    ):
+        affine_weights, source_buf_idx = _get_affine_weights_for_source(
+            video, affine_source_frame_idx
+        )
+        if affine_weights is not None:
+            dino_feats = video.dino_feats_resize[target_buf_idx].detach()
+            y_cdot = (
+                dino_feats.permute(1, 2, 0) @ affine_weights[:-1]
+                + affine_weights[-1]
+            )
+            log_base = torch.as_tensor(1.1, device=y_cdot.device, dtype=y_cdot.dtype).log()
+            uncertainty = torch.logaddexp(log_base, y_cdot)
+            return uncertainty.detach(), source_buf_idx
+
+    return video.uncertainties[target_buf_idx].detach(), source_buf_idx
+
+
+def _get_uncertainty_tensor(video, frame_idx, affine_source_frame_idx=None):
+    buf_idx = _resolve_video_buffer_index(video, frame_idx)
+    if buf_idx is None:
+        return None, None, None
+    uncertainty, source_buf_idx = _compute_uncertainty_with_affine(
+        video, buf_idx, affine_source_frame_idx
+    )
+    return buf_idx, uncertainty, source_buf_idx
+
+
+def _get_uncertainty_debug_maps(video, frame_idx, img_h, img_w, affine_source_frame_idx=None):
+    """
+    Build raw and scaled DROID-W uncertainty arrays for visualization.
+
+    Arrays are returned as numpy float32. Low-resolution maps match DROID-W's
+    uncertainty grid; high-resolution maps are resized to the mapping frame.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    buf_idx, uncer, source_buf_idx = _get_uncertainty_tensor(
+        video, frame_idx, affine_source_frame_idx
+    )
+    if buf_idx is None:
+        return None
+
+    uncer_rescaled = torch.clamp(45.0 * uncer - 35.0, min=0.1)
+    uncer_high_res = F.interpolate(
+        uncer.unsqueeze(0).unsqueeze(0),
+        size=(img_h, img_w),
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze()
+    uncer_high_rescaled = torch.clamp(45.0 * uncer_high_res - 35.0, min=0.1)
+    static_confidence = torch.clamp(1.0 / uncer_high_rescaled, min=0.0, max=1.0)
+    dynamic_probability = 1.0 - static_confidence
+
+    return {
+        "buffer_idx": buf_idx,
+        "frame_idx": int(video.timestamp[buf_idx].cpu().item()),
+        "affine_source_buffer_idx": source_buf_idx,
+        "affine_source_frame_idx": (
+            int(video.timestamp[source_buf_idx].cpu().item())
+            if source_buf_idx is not None
+            else None
+        ),
+        "uncertainty": uncer.cpu().numpy().astype(np.float32),
+        "uncertainty_gray": uncer.cpu().numpy().astype(np.float32),
+        "uncertainty_rescaled": uncer_rescaled.cpu().numpy().astype(np.float32),
+        "uncertainty_high_rescaled": uncer_high_rescaled.cpu().numpy().astype(np.float32),
+        "dynamic_probability": dynamic_probability.cpu().numpy().astype(np.float32),
+    }
+
+
 class IntegratedPrinter:
     """
     A unified printer that displays both DROID-W and dynamic_3dgs messages
@@ -156,9 +273,8 @@ class DroidWSLAMWrapper:
     Wrapper around DROID-W SLAM for integration with dynamic_3dgs.
 
     Runs DROID-W tracking only (no GS mapping), then extracts
-    estimated camera poses for each frame. Final Global BA and
-    Full Trajectory Filling are placed here but commented out
-    for future activation.
+    estimated camera poses for each frame. Interpolates poses for
+    non-keyframe frames.
     """
 
     def __init__(self, droidw_cfg, stream: BaseDataset, printer: IntegratedPrinter):
@@ -247,8 +363,9 @@ class DroidWSLAMWrapper:
     def _extract_and_save_poses(self):
         """
         Extract poses after tracking completes.
-        Final Global BA and Full Trajectory Filling are commented out
-        for now. Uncomment them when ready to use.
+        Final Global BA is still optional/commented out here. Full trajectory
+        filling is run later in the parent process when poses are requested,
+        so it can return the filled trajectory directly to the mapper.
         """
 
         # ============================================================
@@ -268,19 +385,6 @@ class DroidWSLAMWrapper:
         # self.printer.print_droidw("Final Global BA completed")
         # if metric_depth_reg_activated:
         #     self.video.metric_depth_reg = True
-
-        # ============================================================
-        # [COMMENTED OUT] Full Trajectory Filling
-        # Uncomment the following block to fill non-keyframe poses
-        # using DROID-W's trajectory filler before feeding poses
-        # to dynamic_3dgs.
-        # ============================================================
-        # self.printer.print_droidw("Running Full Trajectory Filling...")
-        # self.traj_filler.setup_feature_extractor()
-        # traj_est = full_traj_fill(
-        #     self.traj_filler, None, self.stream, fast_mode=True
-        # )
-        # self.printer.print_droidw("Full Trajectory Filling completed")
 
         # Save keyframe video data
         self.video.save_video(f"{self.save_dir}/video.npz")
@@ -372,7 +476,15 @@ class DroidWSLAMWrapper:
             "num_frames": num_frames,
         }
 
-    def get_uncertainty_mask(self, frame_idx, img_h, img_w, threshold=0.9, dilation_size=10):
+    def get_uncertainty_mask(
+        self,
+        frame_idx,
+        img_h,
+        img_w,
+        threshold=0.9,
+        dilation_size=10,
+        affine_source_frame_idx=None,
+    ):
         """
         Extract DROID-W uncertainty-based dynamic mask for a given frame.
 
@@ -390,24 +502,11 @@ class DroidWSLAMWrapper:
         import torch.nn.functional as F
         import cv2
 
-        kf_num = self.video.counter.value
-        if kf_num == 0:
+        buf_idx, uncer, _ = _get_uncertainty_tensor(
+            self.video, frame_idx, affine_source_frame_idx
+        )
+        if buf_idx is None:
             return None
-
-        kf_timestamps = self.video.timestamp[:kf_num].cpu().int().numpy()
-
-        kf_match = np.where(kf_timestamps == frame_idx)[0]
-        if len(kf_match) > 0:
-            buf_idx = kf_match[0]
-        else:
-            diffs = kf_timestamps - frame_idx
-            past = diffs[diffs <= 0]
-            if len(past) > 0:
-                buf_idx = np.where(diffs == past.max())[0][0]
-            else:
-                buf_idx = np.argmin(np.abs(diffs))
-
-        uncer = self.video.uncertainties[buf_idx]
 
         # Bilinear interpolate raw uncertainty to full resolution first
         uncer_upscaled = F.interpolate(
@@ -424,6 +523,55 @@ class DroidWSLAMWrapper:
         dynamic_mask = (mask_fullres < threshold).cpu().numpy().astype(np.uint8) * 255
 
         return dynamic_mask
+
+    def get_uncertainty_probability(
+        self,
+        frame_idx,
+        img_h,
+        img_w,
+        dilation_size=10,
+        affine_source_frame_idx=None,
+    ):
+        """
+        Return DROID-W dynamic probability at full resolution.
+
+        Values are in [0, 1], where 1 means likely dynamic.
+        """
+        import torch
+        import torch.nn.functional as F
+        import cv2
+
+        buf_idx, uncer, _ = _get_uncertainty_tensor(
+            self.video, frame_idx, affine_source_frame_idx
+        )
+        if buf_idx is None:
+            return None
+
+        uncer_upscaled = F.interpolate(
+            uncer.unsqueeze(0).unsqueeze(0),
+            size=(img_h, img_w),
+            mode='bilinear',
+            align_corners=False,
+        ).squeeze()
+
+        uncer_rescaled = torch.clamp(45.0 * uncer_upscaled - 35.0, min=0.1)
+        static_confidence = torch.clamp(1.0 / uncer_rescaled, min=0.0, max=1.0)
+        dynamic_probability = (1.0 - static_confidence).detach().cpu().numpy().astype(np.float32)
+
+        if dilation_size > 0:
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE,
+                (2 * dilation_size + 1, 2 * dilation_size + 1),
+            )
+            dynamic_probability = cv2.dilate(dynamic_probability, kernel)
+
+        return np.clip(dynamic_probability, 0.0, 1.0).astype(np.float32)
+
+    def get_uncertainty_debug_maps(self, frame_idx, img_h, img_w, affine_source_frame_idx=None):
+        """Return raw/scaled DROID-W uncertainty maps for comparison plots."""
+        return _get_uncertainty_debug_maps(
+            self.video, frame_idx, img_h, img_w, affine_source_frame_idx
+        )
 
     def _interpolate_poses(self, kf_indices, kf_poses, num_frames):
         """
@@ -688,6 +836,7 @@ class OnlineDroidWTracker:
                             )
                     self.prev_ba_idx = self.curr_kf_idx
 
+            self.video.snapshot_affine_weights(self.curr_kf_idx)
             self.prev_kf_idx = self.curr_kf_idx
 
         # Build result
@@ -695,6 +844,13 @@ class OnlineDroidWTracker:
             "pose_available": False,
             "is_keyframe": new_keyframe,
             "just_initialized": just_initialized,
+            "current_keyframe_buffer_idx": self.curr_kf_idx if self.video.counter.value > 0 else None,
+            "current_keyframe_frame_idx": (
+                int(self.video.timestamp[self.curr_kf_idx].detach().cpu().item())
+                if self.video.counter.value > 0
+                else None
+            ),
+            "num_keyframes": int(self.video.counter.value),
         }
 
         if just_initialized:
@@ -764,6 +920,29 @@ class OnlineDroidWTracker:
 
         c2w = (
             SE3(self.video.poses[buf_idx : buf_idx + 1].clone())
+            .inv()
+            .matrix()
+            .data.cpu()
+            .numpy()[0]
+        )
+        translation = c2w[:3, 3].astype(np.float32)
+        quaternion = Rotation.from_matrix(c2w[:3, :3]).as_quat().astype(np.float32)
+        return translation, quaternion
+
+    def get_keyframe_frame_idx(self, buffer_idx):
+        """Return the dataset frame index stored at a DROID-W keyframe buffer slot."""
+        buffer_idx = int(buffer_idx)
+        if buffer_idx < 0 or buffer_idx >= self.video.counter.value:
+            return None
+        return int(self.video.timestamp[buffer_idx].detach().cpu().item())
+
+    def get_keyframe_pose_by_buffer_index(self, buffer_idx):
+        """Return optimized c2w pose for a DROID-W keyframe buffer slot."""
+        buffer_idx = int(buffer_idx)
+        if buffer_idx < 0 or buffer_idx >= self.video.counter.value:
+            return None, None
+        c2w = (
+            SE3(self.video.poses[buffer_idx : buffer_idx + 1].clone())
             .inv()
             .matrix()
             .data.cpu()
@@ -848,7 +1027,15 @@ class OnlineDroidWTracker:
         self.event_writer.close()
         self.printer.print_droidw("Online tracker finalized.")
 
-    def get_uncertainty_mask(self, frame_idx, img_h, img_w, threshold=0.9, dilation_size=10):
+    def get_uncertainty_mask(
+        self,
+        frame_idx,
+        img_h,
+        img_w,
+        threshold=0.9,
+        dilation_size=10,
+        affine_source_frame_idx=None,
+    ):
         """
         Extract DROID-W uncertainty-based dynamic mask for a given frame.
 
@@ -871,27 +1058,11 @@ class OnlineDroidWTracker:
         import torch.nn.functional as F
         import cv2
 
-        kf_num = self.video.counter.value
-        if kf_num == 0:
+        buf_idx, uncer, _ = _get_uncertainty_tensor(
+            self.video, frame_idx, affine_source_frame_idx
+        )
+        if buf_idx is None:
             return None
-
-        kf_timestamps = self.video.timestamp[:kf_num].cpu().int().numpy()
-
-        # Find the corresponding keyframe buffer index for this frame
-        kf_match = np.where(kf_timestamps == frame_idx)[0]
-        if len(kf_match) > 0:
-            buf_idx = kf_match[0]
-        else:
-            # Find nearest keyframe
-            diffs = kf_timestamps - frame_idx
-            past = diffs[diffs <= 0]
-            if len(past) > 0:
-                buf_idx = np.where(diffs == past.max())[0][0]
-            else:
-                buf_idx = np.argmin(np.abs(diffs))
-
-        # Get uncertainty at 1/8 resolution
-        uncer = self.video.uncertainties[buf_idx]  # [H/8, W/8]
 
         # Bilinear interpolate raw uncertainty to full resolution first
         uncer_upscaled = F.interpolate(
@@ -909,6 +1080,55 @@ class OnlineDroidWTracker:
         dynamic_mask = (mask_fullres < threshold).cpu().numpy().astype(np.uint8) * 255
 
         return dynamic_mask
+
+    def get_uncertainty_probability(
+        self,
+        frame_idx,
+        img_h,
+        img_w,
+        dilation_size=10,
+        affine_source_frame_idx=None,
+    ):
+        """
+        Return DROID-W dynamic probability at full resolution.
+
+        Values are in [0, 1], where 1 means likely dynamic.
+        """
+        import torch
+        import torch.nn.functional as F
+        import cv2
+
+        buf_idx, uncer, _ = _get_uncertainty_tensor(
+            self.video, frame_idx, affine_source_frame_idx
+        )
+        if buf_idx is None:
+            return None
+
+        uncer_upscaled = F.interpolate(
+            uncer.unsqueeze(0).unsqueeze(0),
+            size=(img_h, img_w),
+            mode='bilinear',
+            align_corners=False,
+        ).squeeze()
+
+        uncer_rescaled = torch.clamp(45.0 * uncer_upscaled - 35.0, min=0.1)
+        static_confidence = torch.clamp(1.0 / uncer_rescaled, min=0.0, max=1.0)
+        dynamic_probability = (1.0 - static_confidence).detach().cpu().numpy().astype(np.float32)
+
+        if dilation_size > 0:
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE,
+                (2 * dilation_size + 1, 2 * dilation_size + 1),
+            )
+            dynamic_probability = cv2.dilate(dynamic_probability, kernel)
+
+        return np.clip(dynamic_probability, 0.0, 1.0).astype(np.float32)
+
+    def get_uncertainty_debug_maps(self, frame_idx, img_h, img_w, affine_source_frame_idx=None):
+        """Return raw/scaled DROID-W uncertainty maps for comparison plots."""
+        return _get_uncertainty_debug_maps(
+            self.video, frame_idx, img_h, img_w, affine_source_frame_idx
+        )
 
     def get_uncertainty_masks_for_keyframes(self, img_h, img_w, threshold=0.5):
         """

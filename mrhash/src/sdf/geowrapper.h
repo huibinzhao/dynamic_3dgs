@@ -62,6 +62,11 @@ namespace pygeowrapper {
     int dynamic_dilation_size_      = 10;
     float dynamic_flood_threshold_  = 0.007f;
     cupanutils::cugeoutils::CUDAMatrixb dynamic_mask_;
+    cupanutils::cugeoutils::CUDAMatrixf external_dynamic_probability_;
+    bool dynamic_fusion_enabled_ = false;
+    float fused_uncertainty_weight_ = 0.6f;
+    float fused_tsdf_weight_ = 0.4f;
+    float fused_dynamic_threshold_ = 0.5f;
 
     // Mask saving
     bool save_dynamic_mask_ = false;
@@ -70,6 +75,7 @@ namespace pygeowrapper {
 
     // External dynamic mask (e.g., from DROID-W uncertainty)
     bool has_external_mask_ = false;
+    bool has_external_dynamic_probability_ = false;
 
     // GS only on frames with dynamic objects
     bool gs_only_dynamic_frames_ = false;
@@ -80,6 +86,11 @@ namespace pygeowrapper {
     int rendered_img_rows_ = 0;
     int rendered_img_cols_ = 0;
 
+    // Latest TSDF residual visualization produced by computeResidualMask.
+    cv::Mat last_tsdf_residual_img_;
+    std::vector<uint8_t> tsdf_residual_img_buffer_;
+
+    void refineMask(cupanutils::cugeoutils::CUDAMatrixb& mask_to_refine);
     void refineDynamicMask();
 
   public:
@@ -114,14 +125,21 @@ namespace pygeowrapper {
     bool getSaveDynamicMask() const { return save_dynamic_mask_; }
     void setMaskOutputPath(const std::string& path) { mask_output_path_ = path; }
     std::string getMaskOutputPath() const { return mask_output_path_; }
+    void enableDynamicFusion(bool enable) { dynamic_fusion_enabled_ = enable; }
+    bool isDynamicFusionEnabled() const { return dynamic_fusion_enabled_; }
+    void setDynamicFusionWeights(float uncertainty_weight, float tsdf_weight) { fused_uncertainty_weight_ = uncertainty_weight; fused_tsdf_weight_ = tsdf_weight; }
+    void setDynamicFusionThreshold(float threshold) { fused_dynamic_threshold_ = threshold; }
     void setGSOnlyDynamicFrames(bool enable) { gs_only_dynamic_frames_ = enable; }
     bool getGSOnlyDynamicFrames() const { return gs_only_dynamic_frames_; }
     void setExternalDynamicMask(nb::ndarray<uint8_t> mask_array);
-    void clearExternalDynamicMask() { has_external_mask_ = false; }
+    void setExternalDynamicProbability(nb::ndarray<float> probability_array);
+    void clearExternalDynamicMask() { has_external_mask_ = false; has_external_dynamic_probability_ = false; }
     void setGSVisualize(bool enable) { gs_visualize_ = enable; }
     bool getGSVisualize() const { return gs_visualize_; }
     bool hasGSRenderedImage() const;
     nb::ndarray<nb::numpy, uint8_t> getGSRenderedImage();
+    bool hasTSDFResidualImage() const;
+    nb::ndarray<nb::numpy, uint8_t> getTSDFResidualImage();
     void GSRenderOnly();
     int getHashNumBuckets() const { return hash_num_buckets_; }
     int getNumSdfBlocks() const { return num_sdf_blocks_; }

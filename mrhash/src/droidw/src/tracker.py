@@ -110,6 +110,7 @@ class Tracker:
                 if self.video.counter.value == self.frontend.warmup:
                     # initialize the second stage of the frontend
                     self.frontend.initialize_second_stage(self.event_writer)
+                    self.video.snapshot_affine_weights(curr_kf_idx)
                     ## We just finish the initialization
                     if self.cfg['mapping']['enable']:
                         self.pipe.send({"is_keyframe":True, "video_idx":curr_kf_idx,
@@ -129,6 +130,7 @@ class Tracker:
                             else:
                                 self.online_ba.dense_ba(2, enable_update_uncer=False, enable_udba=self.frontend.enable_opt_dyn_mask)
                         prev_ba_idx = curr_kf_idx
+                    self.video.snapshot_affine_weights(curr_kf_idx)
                     # inform the mapper that the estimation of current pose and depth is finished
                     if self.cfg['mapping']['enable']:
                         self.pipe.send({"is_keyframe":True, "video_idx":curr_kf_idx,
@@ -142,5 +144,3 @@ class Tracker:
         self.pipe.send({"is_keyframe":True, "video_idx":None,
                         "timestamp":None, "just_initialized": False, 
                         "end":True})
-
-                

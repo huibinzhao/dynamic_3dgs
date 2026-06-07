@@ -203,7 +203,11 @@ namespace cupanutils {
                      const CUDAVectorf& weights,
                      const Camera& camera,
                      const int max_num_frames);
-      __host__ void computeResidualMask(const CUDAMatrixf3& point_cloud_img, const Camera& camera, CUDAMatrixb& mask, CUDAMatrixf* residual_map = nullptr);
+      __host__ void computeResidualMask(const CUDAMatrixf3& point_cloud_img,
+                    const Camera& camera,
+                    CUDAMatrixb& mask,
+                    CUDAMatrixf* residual_map = nullptr,
+                    CUDAMatrixf* valid_map = nullptr);
       __host__ void garbageCollect(const Camera& camera, const int max_num_frames);
 
       // some internal methods

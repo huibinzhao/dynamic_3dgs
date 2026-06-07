@@ -1,10 +1,34 @@
 build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+*.ninja
+install_manifest.txt
 .pixi/
+.venv/
+venv/
+env/
+.conda/
 **/__pycache__/**
 **/third_party/libtorch/**
 *_profiler.txt
 memory_allocation.txt
 CLAUDE.md
+PROPOSAL.md
+PROPOSAL_zh.md
+
+# Local environment/config files
+.env
+.env.*
+!.env.example
+cfg.yaml
+*.local
+*.local.*
+*.user
+*.user.*
+mrhash/configurations/*_local.cfg
+mrhash/configurations/*.local.cfg
 
 # Compiled python files
 *.pyc

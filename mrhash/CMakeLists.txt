@@ -1,5 +1,25 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 
+if(DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/bin/nvcc")
+  list(PREPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+  set(CMAKE_CUDA_COMPILER "$ENV{CONDA_PREFIX}/bin/nvcc" CACHE FILEPATH "CUDA compiler" FORCE)
+  set(CUDAToolkit_ROOT "$ENV{CONDA_PREFIX}" CACHE PATH "CUDA toolkit root" FORCE)
+  set(CUDA_TOOLKIT_ROOT_DIR "$ENV{CONDA_PREFIX}/targets/x86_64-linux" CACHE PATH "CUDA toolkit root" FORCE)
+  set(CUDA_TOOLKIT_TARGET_DIR "$ENV{CONDA_PREFIX}/targets/x86_64-linux" CACHE PATH "CUDA toolkit target directory" FORCE)
+  set(CUDA_NVCC_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/nvcc" CACHE FILEPATH "CUDA nvcc executable" FORCE)
+  set(CUDA_INCLUDE_DIRS "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include" CACHE PATH "CUDA include directories" FORCE)
+  set(CUDA_TOOLKIT_INCLUDE "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include" CACHE PATH "CUDA include directory" FORCE)
+  set(CUDA_CUDART "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_CUDART_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_cudart_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_cudart_static_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart_static.a" CACHE FILEPATH "CUDA static runtime library" FORCE)
+  set(CUDA_NVRTC_LIB "$ENV{CONDA_PREFIX}/lib/libnvrtc.so" CACHE FILEPATH "CUDA NVRTC library" FORCE)
+  set(CUDA_nvrtc_LIBRARY "$ENV{CONDA_PREFIX}/lib/libnvrtc.so" CACHE FILEPATH "CUDA NVRTC library" FORCE)
+  if(EXISTS "$ENV{CONDA_PREFIX}/share/eigen3/cmake/Eigen3Config.cmake")
+    set(Eigen3_DIR "$ENV{CONDA_PREFIX}/share/eigen3/cmake" CACHE PATH "Eigen3 config directory" FORCE)
+  endif()
+endif()
+
 project(mrhash LANGUAGES C CXX CUDA)
 
 # Allow user to override build type, default to Release for performance
@@ -11,6 +31,8 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 17)
+option(MRHASH_BUILD_TESTS "Build mrhash tests" OFF)
+option(MRHASH_BUILD_APPS "Build mrhash example applications" OFF)
 
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
@@ -20,7 +42,34 @@ message(STATUS "${PROJECT_NAME}: OpenCV version ${OpenCV_VERSION}")
 message(STATUS "OpenCV_INCLUDE_DIRS: ${OpenCV_INCLUDE_DIRS}")
 
 # cuda
-find_file(CUDA_HEADER cuda_runtime.h PATHS /usr/include/ /usr/local/cuda/include/)
+find_package(CUDAToolkit REQUIRED)
+if(DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/lib/libcudart.so")
+  set(CUDA_TOOLKIT_TARGET_DIR "$ENV{CONDA_PREFIX}/targets/x86_64-linux" CACHE PATH "CUDA toolkit target directory" FORCE)
+  set(CUDA_INCLUDE_DIRS "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include" CACHE PATH "CUDA include directories" FORCE)
+  set(CUDA_TOOLKIT_INCLUDE "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include" CACHE PATH "CUDA include directory" FORCE)
+  set(CUDA_CUDART "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_CUDART_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_cudart_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_cudart_static_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart_static.a" CACHE FILEPATH "CUDA static runtime library" FORCE)
+  set(CUDA_NVRTC_LIB "$ENV{CONDA_PREFIX}/lib/libnvrtc.so" CACHE FILEPATH "CUDA NVRTC library" FORCE)
+  set(CUDA_nvrtc_LIBRARY "$ENV{CONDA_PREFIX}/lib/libnvrtc.so" CACHE FILEPATH "CUDA NVRTC library" FORCE)
+endif()
+if(DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include/cuda_runtime.h")
+  set(CUDA_HEADER "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include/cuda_runtime.h" CACHE FILEPATH "CUDA runtime header" FORCE)
+else()
+  unset(CUDA_HEADER CACHE)
+  find_file(CUDA_HEADER cuda_runtime.h
+    HINTS
+      ${CUDAToolkit_INCLUDE_DIRS}
+      "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include"
+      "$ENV{CONDA_PREFIX}/include"
+    PATHS
+      /usr/include/
+      /usr/local/cuda/include/
+    REQUIRED
+  )
+endif()
+string(REGEX REPLACE "(^| )-include [^ ]*/cuda_runtime\\.h" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include ${CUDA_HEADER}")
 
 # Note: Suppressing warning 20012/20014 for float*/Eigen::Matrix type compatibility
@@ -49,41 +98,80 @@ include_directories(${Python_INCLUDE_DIRS})
 
 include(FetchContent)
 
-FetchContent_Declare(
-  eigen
-  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-  GIT_TAG 3.4.0
-)
-FetchContent_MakeAvailable(eigen)
+if(DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/share/eigen3/cmake/Eigen3Config.cmake")
+  unset(Eigen3_DIR CACHE)
+  find_package(Eigen3 CONFIG QUIET
+    PATHS "$ENV{CONDA_PREFIX}/share/eigen3/cmake"
+    NO_DEFAULT_PATH)
+endif()
+if(NOT Eigen3_FOUND)
+  find_package(Eigen3 CONFIG QUIET)
+endif()
+if(Eigen3_FOUND)
+  get_target_property(eigen_SOURCE_DIR Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
+else()
+  FetchContent_Declare(
+    eigen
+    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+    GIT_TAG 3.4.0
+  )
+  FetchContent_MakeAvailable(eigen)
+endif()
 message(STATUS "Eigen Include Directories: ${eigen_SOURCE_DIR}")
-
-FetchContent_Declare(
-  nanobind
-  GIT_REPOSITORY https://github.com/wjakob/nanobind.git
-  GIT_TAG v2.7.0
-)
-FetchContent_MakeAvailable(nanobind)
 
 execute_process(
   COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
-  OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE nanobind_ROOT
+  ERROR_QUIET)
+if(nanobind_ROOT)
+  list(PREPEND CMAKE_PREFIX_PATH "${nanobind_ROOT}")
+endif()
+find_package(nanobind CONFIG QUIET)
+if(NOT nanobind_FOUND)
+  FetchContent_Declare(
+    nanobind
+    GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+    GIT_TAG v2.7.0
+  )
+  FetchContent_MakeAvailable(nanobind)
+endif()
 
 # gtests
-find_package(GTest REQUIRED)
-FetchContent_Declare(
+find_package(GTest QUIET)
+if(NOT GTest_FOUND)
+  FetchContent_Declare(
     googletest
     URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+endif()
 
-FetchContent_Declare(
-  yaml-cpp
-  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  # GIT_TAG yaml-cpp-0.8.0 # Can be a tag (yaml-cpp-x.x.x), a commit hash, or a branch name (master)
-)
-FetchContent_MakeAvailable(yaml-cpp)
+if(MRHASH_BUILD_APPS)
+  find_package(yaml-cpp CONFIG QUIET)
+  if(NOT yaml-cpp_FOUND)
+    FetchContent_Declare(
+      yaml-cpp
+      GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+      # GIT_TAG yaml-cpp-0.8.0 # Can be a tag (yaml-cpp-x.x), a commit hash, or a branch name (master)
+    )
+    FetchContent_MakeAvailable(yaml-cpp)
+  endif()
+  if(NOT YAML_CPP_INCLUDE_DIR OR NOT EXISTS "${YAML_CPP_INCLUDE_DIR}/yaml-cpp/yaml.h")
+    unset(YAML_CPP_INCLUDE_DIR)
+    unset(YAML_CPP_INCLUDE_DIR CACHE)
+    find_path(YAML_CPP_INCLUDE_DIR_FIXED yaml-cpp/yaml.h
+      HINTS
+        "$ENV{CONDA_PREFIX}/include"
+        /usr/include
+        /usr/local/include
+      REQUIRED)
+    set(YAML_CPP_INCLUDE_DIR "${YAML_CPP_INCLUDE_DIR_FIXED}" CACHE PATH "yaml-cpp include directory" FORCE)
+    set(YAML_CPP_INCLUDE_DIR "${YAML_CPP_INCLUDE_DIR_FIXED}")
+  endif()
+endif()
 
 # Libigl
 # list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -101,11 +189,27 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 # Define the absolute path to LibTorch
 get_filename_component(PROJ_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
 set(LIBTORCH_DIR "${PROJ_ROOT_DIR}/third_party/libtorch")
+get_filename_component(PYTHON_BIN_DIR "${Python_EXECUTABLE}" DIRECTORY)
+get_filename_component(PYTHON_ENV_DIR "${PYTHON_BIN_DIR}" DIRECTORY)
 list(APPEND CMAKE_PREFIX_PATH ${LIBTORCH_DIR})
+if(DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include/device_functions.h")
+  set(CUDAToolkit_ROOT "$ENV{CONDA_PREFIX}" CACHE PATH "CUDA toolkit root" FORCE)
+  set(CUDA_TOOLKIT_ROOT_DIR "$ENV{CONDA_PREFIX}/targets/x86_64-linux" CACHE PATH "CUDA toolkit root" FORCE)
+  set(CUDA_TOOLKIT_TARGET_DIR "$ENV{CONDA_PREFIX}/targets/x86_64-linux" CACHE PATH "CUDA toolkit target directory" FORCE)
+  set(CUDA_TOOLKIT_INCLUDE "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include" CACHE PATH "CUDA include directory" FORCE)
+  set(CUDA_INCLUDE_DIRS "$ENV{CONDA_PREFIX}/targets/x86_64-linux/include" CACHE PATH "CUDA include directories" FORCE)
+  set(CUDA_NVCC_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/nvcc" CACHE FILEPATH "CUDA nvcc executable" FORCE)
+  set(CUDA_CUDART "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_CUDART_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_cudart_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart.so" CACHE FILEPATH "CUDA runtime library" FORCE)
+  set(CUDA_cudart_static_LIBRARY "$ENV{CONDA_PREFIX}/lib/libcudart_static.a" CACHE FILEPATH "CUDA static runtime library" FORCE)
+  set(CUDA_NVRTC_LIB "$ENV{CONDA_PREFIX}/lib/libnvrtc.so" CACHE FILEPATH "CUDA NVRTC library" FORCE)
+  set(CUDA_nvrtc_LIBRARY "$ENV{CONDA_PREFIX}/lib/libnvrtc.so" CACHE FILEPATH "CUDA NVRTC library" FORCE)
+endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 find_package(Torch REQUIRED)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-set(CMAKE_INSTALL_RPATH "${LIBTORCH_DIR}/lib")
+set(CMAKE_INSTALL_RPATH "${PYTHON_ENV_DIR}/targets/x86_64-linux/lib;${PYTHON_ENV_DIR}/lib;${LIBTORCH_DIR}/lib")
 
 add_subdirectory(third_party)
 
@@ -113,5 +217,9 @@ set(GEOM_LIB_NAME "libgeometric")
 set(GS_LIB_NAME "libgsmodel")
 
 add_subdirectory(src)
-add_subdirectory(tests)
-add_subdirectory(apps)
+if(MRHASH_BUILD_TESTS)
+  add_subdirectory(tests)
+endif()
+if(MRHASH_BUILD_APPS)
+  add_subdirectory(apps)
+endif()
